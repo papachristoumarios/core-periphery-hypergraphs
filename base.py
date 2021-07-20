@@ -26,7 +26,7 @@ from scipy import sparse as scipy_sparse
 import sparse
 
 # Headless environment for plotting
-matplotlib.set('Agg')
+matplotlib.use('Agg')
 
 # Aesthetics
 LARGE_SIZE = 16

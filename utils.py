@@ -1,6 +1,38 @@
 from base import *
 from hypergraph import *
 
+def normalize_df(df, fields):
+    for field in fields:
+        df[field] = (df[field] - df[field].min()) / (df[field].max() - df[field].min())
+    return df
+
+def binomial_coefficients(n, k):
+    C = collections.defaultdict(int)
+
+    for i in range(0, n + 1):
+        for j in range(0, min(i, k) + 1):
+            if j == 0 or j == i:
+                C[i, j] = 1
+            else:
+                C[i, j] = C[i - 1, j - 1] + C[i - 1, j]
+
+    return C
+
+def stanfit_to_dataframe(fit, params=None):
+  data = fit.extract()
+  result = {}
+  if params is None:
+    params = data.keys()
+
+  for key in params:
+    val = data[key]
+    if len(val.shape) == 1:
+      result[key] = val
+    else:
+      for i in range(val.shape[-1]):
+        result['{}[{}]'.format(key, i)] = val[:, i]
+  return pd.DataFrame.from_dict(data=result)
+
 def generalized_mean(x, p):
   if np.isinf(p):
     return np.max(x)
