@@ -41,6 +41,7 @@ def generalized_mean(x, p):
   else:
     return np.linalg.norm(x) / len(x)**(1 / p)
 
+@jit(nopython=True)
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 

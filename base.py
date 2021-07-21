@@ -23,6 +23,9 @@ from scipy.optimize import minimize
 from scipy import stats
 from scipy import special
 from scipy import sparse as scipy_sparse
+
+from numba import jit
+
 import sparse
 
 # Headless environment for plotting

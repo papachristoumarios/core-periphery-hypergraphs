@@ -42,10 +42,11 @@ class CIGAM:
                 'ranks' : 'real<lower=0, upper=H[L]> ranks[N];'
         }
 
-    def c_helper(self, h):
+    @staticmethod
+    def find_c(h, H, c):
         h_max = np.max(h)
-        idx = np.where(h_max <= self.H)[0][0]
-        return self.c[idx]
+        idx = np.where(h_max <= H)[0][0]
+        return c[idx]
 
     @property
     def b(self):
@@ -62,6 +63,11 @@ class CIGAM:
 
     def sample(self, N, return_ranks=True, method='ball_dropping'):
         assert(method in ['ball_dropping', 'grass_hopping', 'naive'])
+
+        # TODO Implement
+        if len(self.c) > 1 and method != 'naive':
+            raise NotImplementedError('Clever sampling not yet implemented for multi-layer network')
+
         h = self.continuous_tree_sample(N=N)
         ranks = np.argsort(h)
         h = h[ranks]
@@ -70,16 +76,16 @@ class CIGAM:
         if method == 'naive':
             for edge in itertools.combinations(range(N), self.order):
                 edge = np.array(edge)
-                if np.random.uniform() <= self.c**(-1-h[edge].min()):
-                    H.add_simplex_from_nodes(nodes=edge.tolist(), timestamp=None)
+                if np.random.uniform() <= CIGAM.find_c(h[edge], self.H, self.c)**(-1-h[edge].min()):
+                    H.add_simplex_from_nodes(nodes=edge.tolist(), simplex_data = {})
         else:
             for i in range(ranks.shape[0] - self.order):
                 if method == 'ball_dropping':
-                    batch = ball_dropping_helper(S=[ranks[i]], V=ranks[i+1:], p=self.c**(-1-h[i]), k=self.order, directed=False)
+                    batch = ball_dropping_helper(S=[ranks[i]], V=ranks[i+1:], p=self.c[-1]**(-1-h[i]), k=self.order, directed=False)
                 elif method == 'grass_hopping':
-                    batch = grass_hopping_helper(S=[ranks[i]], V=ranks[i+1:], p=self.c**(-1-h[i]), k=self.order, directed=False)
+                    batch = grass_hopping_helper(S=[ranks[i]], V=ranks[i+1:], p=self.c[-1]**(-1-h[i]), k=self.order, directed=False)
                 for edge in batch:
-                    H.add_simplex_from_nodes(nodes=edge, timestamp=None)
+                    H.add_simplex_from_nodes(nodes=edge, simplex_data = {})
 
         if return_ranks:
             return H, self.H - h
@@ -262,7 +268,6 @@ class CIGAM:
 
     def visualize_degree_plot(self, G, fit):
 
-
         degrees_init = 1 + np.array([G.degree(u) for u in range(len(G))])
 
         ranks = fit.extract()['ranks']
@@ -349,7 +354,7 @@ class CIGAM:
             self.lambda_ = m_fit.extract()['lambda'].mean()
             self.b = np.exp(m_fit.extract()['lambda']).mean()
             self.c = m_fit.extract()['c'].mean(0)
-            q_function = CIGAM.q_function(G, e_fit.extract()['ranks'], H, self.b, self.c)
+            q_function = CIGAM.q_function(G, e_fit.extract()['ranks'], H, self.b, self.c, self.order)
 
             print('lambda = {}, c = {}, b = {}, Q = {}'.format(self.lambda_, self.c, self.b, q_function))
 
@@ -363,13 +368,12 @@ class CIGAM:
 
         return optimum
 
-    def fit_model_em(self, G, H, lambda_init=np.log(3.2), c_init=1.4, epochs=15):
-
+    def fit_model_em(self, G, H, lambda_init=np.log(3.2), c_init=[1.4], epochs=15):
         lambda_old = lambda_init
         b_old = np.exp(lambda_old)
         c_old = c_init
         N = len(G)
-        A = nx.to_numpy_array(G).astype(np.int64)
+        A = G.to_dense()[self.order].astype(np.int64)
 
         optimum = (-np.inf, (lambda_old, b_old, c_old))
 
@@ -388,13 +392,16 @@ class CIGAM:
             }
 
             e_fit = self.stan_model_sample(self.latent_posterior(), e_data)
+            ranks_post = e_fit.extract()['ranks']
 
-            m_objective = lambda x: -CIGAM.q_function(G, e_fit.extract()['ranks'], H, x[0], x[1])
+            sizes, neg_sizes = CIGAM.get_partition_sizes(G, ranks_post, self.order)
+        
+            m_objective = lambda x: -CIGAM.q_function(G, ranks_post,  H, x[0], x[1], self.order)
 
-            res = minimize(m_objective, np.array([np.exp(lambda_old), c_old]), method='L-BFGS-B', bounds=bounds)
+            res = minimize(m_objective, np.array([np.exp(lambda_old), c_old[0]]), method='L-BFGS-B', bounds=bounds)
 
             self.b = res.x[0]
-            self.c = res.x[1]
+            self.c = [res.x[1]]
             self.lambda_ = np.log(self.b)
             q_function = -res.fun
             q_values.append(q_function)
@@ -447,68 +454,99 @@ class CIGAM:
         self.H = self.H_backup
 
     @staticmethod
-    def ranks_log_likelihood(ranks, H, b):
-        return (np.log(np.log(b)) - np.log(b**H - 1) + (H - ranks) * np.log(b)).sum()
-
-    @staticmethod
-    def graph_log_likelihood(G, ranks, H, c, sizes=None, neg_sizes=None):
-        heights = H - ranks
+    @jit(forceobj=True)
+    def graph_log_likelihood(G, ranks, H, c, order, sizes=None, neg_sizes=None):
+        if len(H) > 1:
+            raise NotImplementedError('Implement Efficient likelihood of the multi-layer model')
+        
         if sizes is None and neg_sizes is None:
-            result = 0
-            for u in G:
-                for v in G:
-                    if u != v:
-                        if G.has_edge(u, v):
-                            result += np.log(c**(-1 - min(heights[u], heights[v])))
-                        else:
-                            result += np.log(1 - c**(-1 - min(heights[u], heights[v])))
-            return result
-        else:
-            return np.sum([sizes[u] * np.log(c**(-1-heights[u])) + neg_sizes[u] * np.log(1 - c**(-1-heights[u])) for u in G.nodes()])
+            sizes, neg_sizes = CIGAM.get_partition_sizes(G, ranks, order)
+        
+        result = np.sum([sizes[u] * np.log(c[-1])*(-1-H[-1]+ranks[u]) + neg_sizes[u] * np.log(1 - c[-1]**(-1-H[-1]+ranks[u])) for u in G.nodes()])
+        return result
 
     @staticmethod
-    def complete_log_likelihood(G, ranks, H, b, c, sizes=None, neg_sizes=None):
-        return CIGAM.ranks_log_likelihood(ranks, H, b) + CIGAM.graph_log_likelihood(G, ranks, H, c, sizes=sizes, neg_sizes=neg_sizes)
+    @jit(forceobj=True)
+    def graph_log_likelihood_jacobian(G, ranks, H, c, order, sizes=None, neg_sizes=None):
+        if sizes is None and neg_sizes is None:
+            print('computing')
+            sizes, neg_sizes = CIGAM.get_partition_sizes(G, ranks, order)
+        return np.sum([
+                sizes[u] * (-1 - H[-1] + ranks[u]) / c[-1] -
+                #neg_sizes[u] * (-1 - H[-1] + ranks[u]) * c[-1]**(-2 + ranks[u] - H[-1]) / (1 - c[-1]**(-1-H[-1]+ranks[u])) 
+                neg_sizes[u] / c[-1] * (-1-H[-1] + ranks[u]) * c[-1]**(-1-H[-1] + ranks[u])
+                for u in G.nodes()])
+        
+    @staticmethod
+    def complete_log_likelihood(G, ranks, H, lambda_, c, order, sizes=None, neg_sizes=None, sum_ranks=None):
+        return CIGAM.ranks_log_likelihood(None if sum_ranks is not None else ranks, len(G), lambda_, H, sum_ranks) + CIGAM.graph_log_likelihood(G, ranks, H, c, order, sizes=sizes, neg_sizes=neg_sizes)
 
     @staticmethod
-    def q_function(G, ranks_post, H, b, c, sizes_post=None, neg_sizes_post=None):
+    def complete_log_likelihood_jacobian(G, ranks, H, lambda_, c, order, sizes=None, neg_sizes=None, sum_ranks=None):
+        return np.array([[CIGAM.ranks_log_likelihood_jacobian(None if sum_ranks is not None else ranks, len(G), lambda_, H, sum_ranks)], [CIGAM.graph_log_likelihood_jacobian(G, ranks, H, c, order, sizes=sizes, neg_sizes=neg_sizes)]])
+
+
+    @staticmethod
+    def q_function(G, ranks_post, H, lambda_, c, order, sizes_post=None, neg_sizes_post=None):
         if sizes_post is None or neg_sizes_post is None:
-            return np.mean([CIGAM.complete_log_likelihood(G, ranks_post[i, :], H, b, c) for i in range(ranks_post.shape[0])])
-        else:
-            return np.mean([CIGAM.complete_log_likelihood(G, ranks_post[i, :], H, b, c, sizes_post[i, :], neg_sizes_post[i, :]) for i in range(ranks_post.shape[0])])
+            sizes_post, neg_sizes_post = CIGAM.get_partition_sizes(G, ranks_post, order)
+        
+        return np.mean([CIGAM.complete_log_likelihood(G, ranks_post[i, :], H, lambda_, c, order, sizes_post[i, :], neg_sizes_post[i, :]) for i in range(ranks_post.shape[0])])
 
     @staticmethod
-    def normalized_ranks_log_likelihood(sum_ranks, n, lambda_):
-        return n * np.log(lambda_) - lambda_ * sum_ranks - n * np.log(1 - np.exp(-lambda_))
+    def ranks_log_likelihood(ranks, n, lambda_, H, sum_ranks=None):
+        if sum_ranks is None:
+            sum_ranks = np.nansum(ranks)
+        result = n * np.log(lambda_) - lambda_ * sum_ranks
+        return result
+    
+    @staticmethod
+    @jit(forceobj=True)
+    def ranks_log_likelihood_jacobian(ranks, n, lambda_, H, sum_ranks=None):
+        if sum_ranks is None:
+            sum_ranks = np.nansum(ranks)
+        return np.array([n / lambda_ - sum_ranks + n * H[-1] * (1 - sigmoid(lambda_ * H[-1]))])
 
     @staticmethod
+    @jit(forceobj=True)
     def get_partition_sizes(G, ranks, order):
-        sizes = np.zeros(len(G))
-        for edge in G.edges():
-            argmax = np.argmax(ranks[edge.to_index()])
-            sizes[argmax] += 1
-
-        ranks_args = 1 + np.argsort(-ranks)
+        sizes = np.zeros_like(ranks)
+        neg_sizes = np.zeros_like(ranks)
         binomial_coeffs = binomial_coefficients(len(G), order)
-        neg_sizes = np.array([- sizes[u] + binomial_coeffs[len(G) - 1 - ranks_args[u], order - 1] for u in G.nodes()])
+
+        if len(ranks.shape) == 1:
+            for edge in G.edges():
+                argmax = np.argmax(ranks[edge.to_index()])
+                sizes[argmax] += 1
+            ranks_args = 1 + np.argsort(-ranks)
+            neg_sizes = np.array([- sizes[u] + binomial_coeffs[len(G) - 1 - ranks_args[u], order - 1] for u in G.nodes()])
+        
+        else:
+            for i in range(ranks.shape[0]):
+                for edge in G.edges():
+                    argmax = np.argmax(ranks[i, edge.to_index()])
+                    sizes[i, argmax] += 1
+                ranks_args = 1 + np.argsort(-ranks[i, :])
+                neg_sizes[i, :] = np.array([- sizes[i, u] + binomial_coeffs[len(G) - 1 - ranks_args[u], order - 1] for u in G.nodes()])
     
         return sizes, neg_sizes
 
-    def fit_model_given_ranks_naive(self, G, ranks):
-        ranks = (ranks - ranks.min()) / (ranks.max() - ranks.min())
-        self.H = 1
-        S = ranks.sum()
+    def fit_model_given_ranks(self, G, ranks):
+        self.H = [ranks.max()]
+        sum_ranks = ranks.sum()
         n = len(ranks)
+       
+
         bounds = ((0, np.inf),) 
-        res = minimize(lambda x: - CIGAM.normalized_ranks_log_likelihood(S, n, x), n / S, bounds=bounds)
-        self.lambda_ = res.x[0]
-        normalized_ranks_ll = - res.fun
+        self.lambda_ = n / sum_ranks
+        normalized_ranks_ll = np.log(n) * n - n * np.log(sum_ranks) - n
+        print('ranks ll', normalized_ranks_ll)
         bounds = ((1, np.inf),)
         sizes, neg_sizes = CIGAM.get_partition_sizes(G, ranks, self.order)
-        res = minimize(lambda x: - CIGAM.graph_log_likelihood(G, ranks, 1, x, sizes, neg_sizes), np.random.pareto(2) + 1, bounds=bounds)
-
+        res = minimize(lambda x: - CIGAM.graph_log_likelihood(G, ranks, self.H, x, self.order, sizes, neg_sizes), self.b, bounds=bounds, jac=lambda x: - CIGAM.graph_log_likelihood_jacobian(G, ranks, self.H, x, self.order, sizes, neg_sizes))
         self.c = res.x[0]
         graph_ll = - res.fun
+        print('graph ll = ', graph_ll)
         return normalized_ranks_ll + graph_ll
 
 class CIGAMGeneralizedMean(CIGAM):
@@ -548,7 +586,7 @@ class CIGAMGeneralizedMean(CIGAM):
                 'ranks' : 'real<lower=0, upper=H[L]> ranks[N];'
         }
 
-    def c_helper(self, h):
+    def find_c(self, h):
         h_max = h.max()
         idx = np.where(h_max <= self.H)[0][0]
         return self.c[idx]
@@ -564,7 +602,7 @@ class CIGAMGeneralizedMean(CIGAM):
             G.add_node(u)
             for v in range(u):
                 idx = np.array([u, v])
-                if u != v and np.random.uniform() <= self.c_helper(h[idx])**(-1-generalized_mean(h[idx], self.p)):
+                if u != v and np.random.uniform() <= self.find_c(h[idx])**(-1-generalized_mean(h[idx], self.p)):
                     G.add_edge(u, v)
 
         if return_ranks:

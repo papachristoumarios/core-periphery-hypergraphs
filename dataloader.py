@@ -147,7 +147,7 @@ def load_ghtorrent_projects(location='/data/mp2242/ghtorrent-projects-hypergraph
     H = Hypergraph()
 
     for i, row in df.iterrows():
-            simplex = Simplex([int(x) for x in row['simplex'].split(',')], data={'timestamp' :row['created_at']})
+            simplex = Simplex([int(x) for x in row['simplex'].split(',')], simplex_data={'timestamp' :row['created_at']})
             H.add_simplex(simplex)
 
     num_followers = pd.read_csv(os.path.join(location, 'num_followers.txt'), sep='\t')
@@ -191,7 +191,7 @@ def load_coauth_mag_kdd(location='/data/mp2242/coauth-MAG-KDD', simplex_min_size
                         H.add_simplex(simplex)
 
         stats = pd.read_csv(os.path.join(location, 'coauth-MAG-KDD-node-labels{}.txt'.format('-imputed' if completed else '')), sep='\t')
-        stats = normalize_df(stats, fields=['h_index', 'n_citation', 'n_pubs'])
+        # stats = normalize_df(stats, fields=['h_index', 'n_citation', 'n_pubs'])
 
         for i, row in stats.iterrows():
                 H.set_attribute(row['aminer_id'], 'h_index', row['h_index'])

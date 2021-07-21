@@ -9,6 +9,9 @@ class Simplex:
     def __len__(self):
         return len(self.nodes_)
 
+    def __repr__(self):
+        return '[{}]'.format(', '.join(map(str, self.nodes_)))
+
     def add_node(self, node):
         self.nodes_.append(node)
 
@@ -22,8 +25,8 @@ class Simplex:
     def get_attribute(self, key):
         return self.simplex_data.get(key, None)
 
-    def to_index(self):
-        return np.array(self.nodes_)
+    def to_index(self, dtype=np.array):
+        return dtype(self.nodes_)
 
 class Hypergraph:
 
@@ -94,6 +97,10 @@ class Hypergraph:
 
         return degrees
 
+    def simplices_to_list_of_lists(self):
+        for edge in self.edges():
+            yield edge.nodes_
+
     @staticmethod
     def graph_to_hypergraph(G):
         H = Hypergraph()
@@ -144,10 +151,14 @@ class Hypergraph:
         return csr
 
     def to_dense(self):
-        csr = self.to_csr()
+        self = Hypergraph.convert_node_labels_to_integers(self)
         dense = {}
-        for key, val in csr.items():
-            dense[key] = val.todense()
+        for edge in self.edges():
+            k = len(edge)
+            if dense.get(k, None) is None:
+                shape = tuple(k * [self.__len__()])
+                dense[k] = np.zeros(shape=shape)
+            dense[k][edge.to_index(dtype=tuple)] = 1
 
         return dense
 
