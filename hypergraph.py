@@ -162,6 +162,18 @@ class Hypergraph:
 
         return dense
 
+    def edges_to_numpy_array(self):
+        numpy_edges = collections.defaultdict(list)
+
+        for edge in self.edges():
+            k = len(edge)
+            numpy_edges[k].append(edge.to_index(list))
+
+        for key, val in numpy_edges.items():
+            numpy_edges[key] = np.array(val).T
+
+        return numpy_edges
+
     @staticmethod
     def convert_node_labels_to_integers(H):
         if isinstance(H, Hypergraph):
