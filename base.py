@@ -17,6 +17,7 @@ import random
 import itertools
 import pystan
 import pickle
+import multiprocessing
 
 from sklearn import linear_model
 from scipy.optimize import minimize
@@ -32,7 +33,7 @@ import sparse
 matplotlib.use('Agg')
 
 # Aesthetics
-LARGE_SIZE = 16
+LARGE_SIZE = 20
 plt.rc('axes', labelsize=LARGE_SIZE)
 plt.rc('axes', titlesize=LARGE_SIZE)
 sns.set_theme()

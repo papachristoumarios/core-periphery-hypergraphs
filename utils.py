@@ -123,7 +123,7 @@ def grass_hopping_helper(S, V, k, p, directed=True):
 
 def sample_combination(n, k):
     S = set([])
-    choices = set(range(n))
+    choices = list(range(n))
 
     # Generate combinations uniformly with rejection sampling
     while len(S) < k:
@@ -132,7 +132,7 @@ def sample_combination(n, k):
             S |= {u}
  
         if k >= len(choices) // 2 and len(S) >= len(choices) // 4:
-            choices = choices - S
+            choices = list(set(choices) - S)
             k -= len(S)
 
     return list(S)

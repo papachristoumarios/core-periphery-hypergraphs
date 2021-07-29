@@ -61,6 +61,24 @@ class CIGAM:
         self.lambda_ = np.log(b_)
         return b_
 
+    def bias_matrix(self, N, return_ranks=True):
+        P = np.zeros(tuple(self.order * [N]))
+        h = self.continuous_tree_sample(N=N)
+        h = np.sort(h)
+
+        for edge in itertools.combinations(range(N), self.order):
+            edge = np.array(edge)
+            bias = CIGAM.find_c(h[edge], self.H, self.c)**(-1-h[edge].min())
+           
+            for dedge in itertools.permutations(edge, self.order):
+                P[dedge] = bias
+        
+        if return_ranks:
+            return P, self.H[-1] - h
+        else:
+            return P, h
+
+
     def sample(self, N, return_ranks=True, method='ball_dropping'):
         assert(method in ['ball_dropping', 'grass_hopping', 'naive'])
 
