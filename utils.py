@@ -7,7 +7,7 @@ def normalize_df(df, fields):
         return df
 
 def binomial_coefficients(n, k):
-        C = collections.defaultdict(int)
+        C = np.zeros(shape=(n + 1, k + 1), dtype=int)
 
         for i in range(0, n + 1):
                 for j in range(0, min(i, k) + 1):
@@ -137,7 +137,7 @@ def sample_combination(n, k):
 
     return list(S)
 
-def ball_dropping_helper(S, V, k, p, directed=True):
+def ball_dropping_helper(S, V, T, k, p, directed=True):
         assert(k > len(S))
         n = len(V)
         s = len(S)
@@ -157,3 +157,4 @@ def ball_dropping_helper(S, V, k, p, directed=True):
                 if e not in edges:
                         edges.add(e)
         return list(edges)
+

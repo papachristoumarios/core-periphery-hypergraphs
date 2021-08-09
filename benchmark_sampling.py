@@ -14,18 +14,20 @@ def sample_helper(args):
     return eta_ball_dropping
 
 if __name__ == '__main__':
-    orders = [2, 3, 4]
-    sizes = [10, 50, 100, 500, 1000]
+    orders = [2, 3]
+    sizes = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500]
+    colors = {2: 'r', 3: 'b'}
 
-    n_trials = 50
+    n_trials = 5
     results_mean = collections.defaultdict(list)
     results_std = collections.defaultdict(list)
     mean_edges = collections.defaultdict(list)
 
-    n_jobs = 2
+    n_jobs = 5
     pool = multiprocessing.Pool(n_jobs)
         
     for order in orders:
+        print('k = ', order)
         cigam = CIGAM(order=order) 
         for n in sizes:
             start = datetime.now()
@@ -47,15 +49,12 @@ if __name__ == '__main__':
 
     cmap = plt.get_cmap('viridis')
 
-    print(results_mean)
-    print(results_std)
 
     for key, val in results_mean.items():
-        plt.plot(sizes, np.log(val), color=cmap(key), marker='x', label='Average Runtime (k = {})'.format(key))
-        plt.fill_between(sizes, np.log(np.array(val) - np.array(results_std[key])), np.log(np.array(val) + np.array(results_std[key])), color=cmap(key), alpha=0.3) 
+        plt.plot(sizes, np.log(val), marker='x', label='Average Runtime (k = {})'.format(key), color=colors[key])
+        plt.fill_between(sizes, np.log(np.array(val) - np.array(results_std[key])), np.log(np.array(val) + np.array(results_std[key])), color=colors[key], alpha=0.3) 
         mean_edges_temp = np.array(mean_edges[key])
-        plt.plot(sizes, np.log(mean_edges_temp * np.log(mean_edges_temp)), linestyle='dashed', color=cmap(key), label='Theoretical Runtime (k = {})'.format(key))
-
+        plt.plot(sizes, np.log(mean_edges_temp * np.log(mean_edges_temp)), linestyle='dashed', color=colors[key], label='Theoretical Runtime (k = {})'.format(key))
 
     plt.title('Ball Dropping Performance')
     plt.xlabel('Network Size ($n$)')
