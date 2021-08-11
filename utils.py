@@ -121,13 +121,18 @@ def grass_hopping_helper(S, V, k, p, directed=True):
 
     return edges
 
-def sample_combination(n, k):
+def sample_combination(n, k, n_f=0, k_f=0):
     S = set([])
     choices = list(range(n))
 
     # Generate combinations uniformly with rejection sampling
     while len(S) < k:
-        u = random.choice(choices)
+        if k_f > 0: 
+            u = random.choice(choices[-n_f:])
+            k_f -= 1
+        else:
+            u = random.choice(choices)
+        
         if u not in S:
             S |= {u}
  
@@ -137,24 +142,27 @@ def sample_combination(n, k):
 
     return list(S)
 
-def ball_dropping_helper(S, V, T, k, p, directed=True):
-        assert(k > len(S))
+def ball_dropping_helper(S, V, k, p, n_f=0, k_f=0, existing_edges=[], directed=True):
+        assert(k >= len(S))
+
         n = len(V)
         s = len(S)
+        m_existing = len(existing_edges)
 
         if directed:
-            m = int(np.random.binomial(n**(k - s), p))
+            m = int(np.random.binomial(n**(k - s) - (n - n_f)**(k - s), p))
         else:
-            m = int(np.random.binomial(special.comb(n, k - s), p))
+            m = int(np.random.binomial(special.comb(n, k - s) - special.comb(n - n_f, k - s), p))
 
-        edges = set()
-        while len(edges) < m:
+
+        edges = set(existing_edges)
+        while len(edges) < m_existing + m:
                 if directed:
-                    e_index = np.random.randint(low=0, high=n, size=k-s)
+                    e_index = np.hstack((np.random.randint(low=n-n_f, high=n, size=k_f), np.random.randint(low=0, high=n, size=k-s-k_f)))
                 else:
-                    e_index = sample_combination(n, k - s)
+                    e_index = sample_combination(n, k - s, n_f=n_f, k_f=k_f)
                 e = tuple(S + [V[idx] for idx in e_index])
                 if e not in edges:
-                        edges.add(e)
-        return list(edges)
+                    edges.add(e)
 
+        return list(edges)
