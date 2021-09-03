@@ -175,9 +175,11 @@ class Hypergraph:
         return numpy_edges
 
     @staticmethod
-    def convert_node_labels_to_integers(H):
+    def convert_node_labels_to_integers(H, mapping=None):
         if isinstance(H, Hypergraph):
-            mapping = dict([(u, i) for i, u in enumerate(H.nodes())])
+            if mapping is None:
+                mapping = dict([(u, i) for i, u in enumerate(H.nodes())])
+            
             H_new = Hypergraph()
             for edge in H.edges():
                 new_edge = [mapping[u] for u in edge.nodes()]
@@ -189,6 +191,23 @@ class Hypergraph:
             return H_new
         elif isinstance(H, nx.Graph):
             return nx.convert_node_labels_to_integers(H)
+
+    @staticmethod
+    def convert_node_labels_to_integers_with_field(H, field):
+      
+        H = Hypergraph.convert_node_labels_to_integers(H, mapping=None)
+        values = np.zeros(len(H))
+
+        for u, data in H.nodes(data=True):
+            values[u] = data[field]
+            
+        values = np.nan_to_num(values)
+
+        ordering = np.argsort(-values)
+        
+        mapping = dict([(ordering[i], i) for i in range(len(values))])
+         
+        return Hypergraph.convert_node_labels_to_integers(H, mapping=mapping), values[ordering]
 
 def mns(H, s):
     if isinstance(H, Hypergraph):

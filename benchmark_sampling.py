@@ -52,7 +52,7 @@ if __name__ == '__main__':
 
     for key, val in results_mean.items():
         plt.plot(sizes, np.log(val), marker='x', label='Average Runtime (k = {})'.format(key), color=colors[key])
-        plt.fill_between(sizes, np.log(np.array(val) - np.array(results_std[key])), np.log(np.array(val) + np.array(results_std[key])), color=colors[key], alpha=0.3) 
+        # plt.fill_between(sizes, np.log(np.array(val) - np.array(results_std[key])), np.log(np.array(val) + np.array(results_std[key])), color=colors[key], alpha=0.3) 
         mean_edges_temp = np.array(mean_edges[key])
         plt.plot(sizes, np.log(mean_edges_temp * np.log(mean_edges_temp)), linestyle='dashed', color=colors[key], label='Theoretical Runtime (k = {})'.format(key))
 

@@ -6,8 +6,19 @@ def normalize_df(df, fields):
                 df[field] = (df[field] - df[field].min()) / (df[field].max() - df[field].min())
         return df
 
+@jit(nopython=True)
+def truncated_exp_inverse_cdf(q, lambda_, H):
+    if q < 0:
+        return -np.inf
+    if q > 1:
+        return np.inf
+
+    Z = np.log(1 - np.exp(-lambda_ * H[-1]))
+    return - np.log(1 - q * Z) / lambda_
+
+@jit(nopython=True)
 def binomial_coefficients(n, k):
-        C = np.zeros(shape=(n + 1, k + 1), dtype=int)
+        C = np.zeros(shape=(n + 1, k + 1), dtype=np.int64)
 
         for i in range(0, n + 1):
                 for j in range(0, min(i, k) + 1):

@@ -23,20 +23,24 @@ edges = np.zeros(shape=(M, K), dtype=np.int64)
 for i, edge in enumerate(G.edges()):
     edges[i, :] = edge.to_index(np.array)
 
-import pdb; pdb.set_trace()
+# import pdb; pdb.set_trace()
 
 with open('cigam_model.stan') as f:
     model_code = f.read()
 
-stan_model = pystan.StanModel(model_code=model_code, model_name='fast model')
+stan_model = pystan.StanModel(model_code=model_code, model_name='fastmodel')
+binomial_coeffs = binomial_coefficients(N, K)
 
-data = {
+
+model_data = {
     'N' : N,
     'L' : L,
     'H' : H,
+    'K' : K,
     'ranks' : ranks,
-
-
+    'binomial_coefficients' : binomial_coeffs, 
+    'M' : M,
+    'edges' : edges
 }
 
 fit = stan_model.sampling(data=model_data, iter=100, chains=10, n_jobs=10)

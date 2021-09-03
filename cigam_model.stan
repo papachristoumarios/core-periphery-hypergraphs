@@ -1,34 +1,35 @@
 functions {
 
-  int[] get_layers(real[] ranks_vector, real[] thresholds, int len) {
-      int layers[len];
+  int[] get_layers(real[] ranks_vector, real[] thresholds, int N_size, int L_size) {
+      int layers[N_size];
       int j = 1;
 
-      for (i in 1:len) {
-          if H[len] - ranks_vector[i] > thresholds[j] {
+      for (i in 1:N_size) {
+          if (thresholds[L_size] - ranks_vector[i] > thresholds[j]) {
               j = j + 1;
           }
-          layers[i] = j
+          layers[i] = j;
       }
       return layers;
   }
 
-  int[][] get_num_layers(int[] layers, int len, int num_layers) {
-    int temp[num_layers];
+  int[,] get_num_layers(int[] layers, int N_size, int L_size) {
+    int temp[L_size];
     int i = 1;
-
-    for (l in 1:num_layers) {
-      while (layers[i] == l) {
+    int j = 1;
+    int result[N_size, L_size];
+    
+    for (l in 1:L_size) {
+      while (i <= N_size && layers[i] == l) {
         temp[l] = temp[l] + 1;
         i = i + 1;
       }
     }
 
-    int result[len, num_layers];
-    int j = 1;
+    print(temp);
 
-    for (i in 1:(len - 1)) {
-      while (temp[j] == 0 && j <= num_layers) {
+    for (i1 in 1:(N_size - 1)) {
+      while (temp[j] == 0 && j <= L_size) {
         j = j + 1;
       }
       temp[j] = temp[j] - 1;
@@ -37,36 +38,48 @@ functions {
     return result;
   }
 
-  int[][] get_partition_sizes(int[][] edges_vector, real[] ranks_vector, int[] ordering_vector, int[] layers_vector, real[] thresholds, int len, int num_layers, int num_edges, int simplex_size) {
-    int sizes[len, num_layers];
+  int[,] get_binomial_sizes(int[,] num_layers_vector, int[,] binomial_coefficients_vector, int N_size, int L_size, int K_size) {
+    int binomial_sizes[N_size, L_size];
+    int j;
 
-    for (i in 1:len) {
-      for (j in 1:num_layers) {
+    for (i in 1:N_size) {
+      j = i + 1;
+      for (l in 1:L_size) {
+          binomial_sizes[i, l] = binomial_coefficients_vector[j + num_layers_vector[i, l] - i, K_size - 1] - binomial_coefficients_vector[j - i - 1, K_size - 1]; // TODO FIX
+          j = j + num_layers_vector[i, l];
+      }
+
+    }
+
+    return binomial_sizes;
+  }
+
+
+  int[,] get_partition_sizes(int[,] edges_vector, real[] ranks_vector, int[] ordering_vector, int[] layers_vector, real[] thresholds, int N_size, int L_size, int M_size, int K_size) {
+    int sizes[N_size, L_size];
+    real max_value;
+    int argmax;
+    real min_value;
+    int argmin;
+    
+    for (i in 1:N_size) {
+      for (j in 1:L_size) {
         sizes[i, j] = 0;
       }
     }
 
-    int max_value;
-    int argmax;
-    int min_value;
-    int argmin;
-
-    for (i in 1:num_edges) {
-      max_value = 0;
+    for (i in 1:M_size) {
       argmax = -1;
-
-      min_value = ranks_vector[len - 1];
       argmin = -1;
 
-
-      for (k in 1:simplex_size) {
-        if (ranks_vector[ordering_vector[edge_set[i, j] + 1]] >= max_value) {
-          max_value = ranks_vector[ordering_vector[edges_vector[i, j] + 1]];
+      for (k in 1:K_size) {
+        if (argmax == -1 || ranks_vector[ordering_vector[edges_vector[i, k] + 1]] >= max_value) {
+          max_value = ranks_vector[ordering_vector[edges_vector[i, k] + 1]];
           argmax = k;
         }
 
-        if (ranks_vector[ordering_vector[edge_set[i, j] + 1]] <= min_value) {
-          min_value = ranks_vector[ordering_vector[edges_vector[i, j] + 1]];
+        if (argmin == -1 || ranks_vector[ordering_vector[edges_vector[i, k] + 1]] <= min_value) {
+          min_value = ranks_vector[ordering_vector[edges_vector[i, k] + 1]];
           argmin = k;
         }
 
@@ -78,25 +91,6 @@ functions {
 
     return sizes;
   }
-
-
-  int[][] get_binomial_sizes(int[][] num_layers_vector, int[][] binomial_coefficients_vector, int len, int num_layers) {
-    int binomial_sizes[len, num_layers];
-    int j;
-
-    for (i in 1:len) {
-      j = i + 1;
-      for l in 1:num_layers) {
-          binomial_sizes[i, l] = binomial_coefficients_vector[j + num_layers_vector[i, l] - i, simplex_size - 1] - binomial_coefficients_vector[j - i - 1, order - 1];
-          j = j + num_layers[i, l];
-      }
-
-    }
-
-    return binomial_sizes;
-  }
-
-
 }
 
 data {
@@ -104,7 +98,7 @@ data {
   int L; // number of layers
   int M; // number of edges
   int K; // hypergraph order
-  int binomial_coefficients[N, K]; // precalculated binomial coefficients
+  int binomial_coefficients[N + 1, K + 1]; // precalculated binomial coefficients
   int edges[M, K]; // matrix with edge indices
   real H[L]; // multi-core thresholds
   real ranks[N]; // ranks
@@ -112,45 +106,46 @@ data {
 
 parameters {
   real<lower=1.003> c[L]; // bias bases
-  real<lower=0> lambda; // ranks exponent
+  real<lower=0, upper=H[L]> lambda; // ranks exponent
 }
 
 model {
-
-  ranks ~ exponential(lambda);
   int ordering[N]; // ordering of ranks
+  real sorted_ranks[N]; // sorted ranks
+  int layers[N];
+  int num_layers[N, L];
+  int sizes[N, L];
+  int binomial_sizes[N, L]; 
+ 
+  ranks ~ exponential(lambda);
   ordering = sort_indices_desc(ranks);  // argsort
   print("Ordering");
   print(ordering);
 
-  ranks = sort_desc(ranks); // sort
+  sorted_ranks = sort_desc(ranks); // sort
   print("Sorted ranks");
   print(ranks);
 
-  int layers[N];
-  layers = get_layers(ranks, H, N); // create layers
+  layers = get_layers(sorted_ranks, H, N, L); // create layers
   print("Layers");
   print(layers);
 
-  int num_layres[N, L];
   num_layers = get_num_layers(layers, N, L);
   print("Num layers");
   print(num_layers);
 
-  int sizes[N, L];
-  sizes = get_partition_sizes(edges, ranks, ordering, layers, H, N, L, M, K)
+  sizes = get_partition_sizes(edges, sorted_ranks, ordering, layers, H, N, L, M, K);
   print("Sizes");
   print(sizes);
 
-  int binomial_sizes[N, L];
-  binomial_sizes = get_neg_partition_sizes(sizes, num_layers, binomial_coefficients, N, L);
+  binomial_sizes = get_binomial_sizes(num_layers, binomial_coefficients, N, L, K);
   print("Binomial sizes");
   print(binomial_sizes);
 
   // Sample hypergraph
   for (i in 1:N) {
     for (l in 1:L) {
-      sizes[i, l] ~ binomial(binomial_sizes[i, l], pow(c[l], -1 - H + ranks[i]));
+      sizes[i, l] ~ binomial(binomial_sizes[i, l], pow(c[l], -1 - H[L] + sorted_ranks[i]));
     }
   }
 }
