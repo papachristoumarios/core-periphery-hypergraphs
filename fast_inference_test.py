@@ -6,11 +6,11 @@ from cigam import *
 from hypergraph import *
 from utils import *
 
-N = 10
-L = 1
+N = 100
 H = [1]
-K = 2
-c = [1.5]
+K = 3
+c = [2.5]
+L = len(H)
 b = 3
 
 cigam = CIGAM(b=b, c=c, H=H, order=K)
@@ -43,4 +43,7 @@ model_data = {
     'edges' : edges
 }
 
-fit = stan_model.sampling(data=model_data, iter=100, chains=10, n_jobs=10)
+fit = stan_model.sampling(data=model_data, iter=1000, chains=1, n_jobs=1)
+
+print(fit['c'].mean(0))
+print(np.exp(fit['lambda'].mean(0)))

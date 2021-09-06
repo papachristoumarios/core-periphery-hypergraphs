@@ -209,6 +209,16 @@ class Hypergraph:
          
         return Hypergraph.convert_node_labels_to_integers(H, mapping=mapping), values[ordering]
 
+    def to_index(self):
+        M = self.num_simplices()
+        K = len(next(self.edges()))
+        edges = np.zeros(shape=(M, K), dtype=np.int64)
+
+        for i, edge in enumerate(self.edges()):
+            edges[i, :] = edge.to_index(np.array)
+
+        return edges
+
 def mns(H, s):
     if isinstance(H, Hypergraph):
         u0, v0 = random.choice(list(H.graph.edges()))

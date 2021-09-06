@@ -33,13 +33,15 @@ class CIGAM:
 
         self.stan_definitions = {
                 'N' : 'int N;',
-                'order' : 'int order;',
+                'M' : 'int M;',
+                'K' : 'int K;',
                 'L' : 'int L;',
                 'H' : 'real H[L];',
                 'b' : 'real<lower=1> b;',
                 'lambda' : 'real<lower=0> lambda;',
                 'c' : 'real<lower=1> c[L];',
-                'A' : 'int<lower=0, upper=1> A[{}];'.format(', '.join(self.order * ['N'])),
+                'edges' : 'int edges[N, K];',
+                'binomial_coefficients' : 'int binomial_coefficients[N + 1, K + 1];',
                 'ranks' : 'real<lower=0, upper=H[L]> ranks[N];'
         }
 
@@ -142,69 +144,37 @@ class CIGAM:
         plt.legend()
         plt.savefig('degree_plot.eps')
 
-    def stan_model(self, known, dump=True, load=True, method='naive'):
+    def stan_model(self, known, dump=True, load=True):
+            
+        with open('cigam_functions.stan') as f:
+            functions_segment = f.read()
 
-        if method == 'naive':
-            functions_segment = '''functions {
+        with open('cigam_model.stan') as f:
+            model_segment = f.read()
 
-        int[] get_layers(real[] ranks_vector, int[] ordering_vector, int len) {
-            int layers[len];
-            int j = 1;
+        data = []
+        params = []
+        data_keys = []
+        params_keys = []
 
-            for (i in 1:len) {
-                if H[len] - ranks_vector[ordering[i]] > H[j] {
-                    j = j + 1;
-                }
-                layers[ordering[i]] = j
-            }
-            return layers;
-        }
+        for key, val in known.items():
+            if val:
+                data.append(self.stan_definitions[key])
+                data_keys.append(key)
+            else:
+                params.append(self.stan_definitions[key])
+                params_keys.append(key)
 
+        data_text = '\n\t'.join(data)
+        params_text = '\n\t'.join(params)
 
-    }'''
+        data_segment = 'data {\n\t' + data_text + '\n}'
+        params_segment = 'parameters {\n\t' + params_text + '\n}'
 
-            model_segment = '''model {
-
-                lambda ~ gamma(2, 2);
-                c ~ pareto(1, 2);
-                ranks ~ exponential(lambda);
-
-                int ordering[N];
-                ordering = sort_indices_desc(ranks);
-
-                layers = get_layers(ranks, ordering);
-
-                for (i in 1:N) {
-                    for (j in 1:N) {
-                        if (ranks[i] >= ranks[j]) A[i, j] ~ bernoulli(pow(c[find_c(H[L] - ranks[j], H, L)], -1-H[L]+ranks[i]));
-                        else A[i, j] ~ bernoulli(pow(c[find_c(H[L] - ranks[i], H, L)], -1-H[L]+ranks[j]));
-                    }
-                }
-    }
-            '''
-
-            data = []
-            params = []
-            data_keys = []
-            params_keys = []
-
-            for key, val in known.items():
-                if val:
-                    data.append(self.stan_definitions[key])
-                    data_keys.append(key)
-                else:
-                    params.append(self.stan_definitions[key])
-                    params_keys.append(key)
-
-            data_text = '\n\t'.join(data)
-            params_text = '\n\t'.join(params)
-
-            data_segment = 'data {\n\t' + data_text + '\n}'
-            params_segment = 'parameters {\n\t' + params_text + '\n}'
-
-            model_code = '{}\n\n{}\n\n{}\n\n{}'.format(functions_segment, data_segment, params_segment, model_segment)
+        model_code = '{}\n\n{}\n\n{}\n\n{}'.format(functions_segment, data_segment, params_segment, model_segment)
 
         model_name = '{}_given_{}'.format('_'.join(params_keys), '_'.join(data_keys))
+
 
         if load:
             if os.path.isfile('{}.pickle'.format(model_name)):
@@ -239,8 +209,11 @@ class CIGAM:
         known = {
                 'N' : True,
                 'L' : True,
+                'K' : True,
+                'M' : True,
                 'H' : True,
-                'A' : True,
+                'edges' : True,
+                'binomial_coefficients' : True,
                 'ranks' : True,
                 'lambda' : False,
                 'c' : False
@@ -252,8 +225,11 @@ class CIGAM:
         known = {
                 'N' : True,
                 'L' : True,
+                'K' : True, 
+                'M' : True,
                 'H' : True,
-                'A' : True,
+                'edges' : True,
+                'binomial_coefficients' : True,
                 'ranks' : False,
                 'lambda' : True,
                 'c' : True
@@ -265,8 +241,11 @@ class CIGAM:
         known = {
                 'N' : True,
                 'L' : True,
+                'K' : True,
+                'M' : True,
                 'H' : True,
-                'A' : True,
+                'edges' : True,
+                'binomial_coefficients' : True,
                 'ranks' : False,
                 'lambda' : False,
                 'c' : False
@@ -357,17 +336,23 @@ class CIGAM:
         b_old = np.exp(lambda_old)
         c_old = c_init
         N = len(G)
-        A = nx.to_numpy_array(G).astype(np.int64)
+        edges = G.to_index()
+        M = edges.shape[0]
 
         optimum = (-np.inf, (lambda_old, b_old, c_old))
+
+        binomial_coefs = binomial_coefficients(N, self.order)
 
         for _ in range(epochs):
             # E-Step: Sample from p(heights | G, b_old, c_old)
             e_data = {
-                    'N' :    N,
+                    'N' : N,
                     'L' : len(H),
+                    'K' : self.order,
+                    'M' : M, 
                     'H' : H,
-                    'A' : A,
+                    'edges' : edges,
+                    'binomial_coefficients' : binomial_coeffs,
                     'lambda' : lambda_old,
                     'c' : c_old
             }
@@ -381,8 +366,11 @@ class CIGAM:
             m_data = {
                     'N' : N,
                     'L' : len(H),
+                    'K' : self.order,
+                    'M' : M,
                     'H' : H,
-                    'A' : A,
+                    'edges' : edges,
+                    'binomial_coefficients' : binomial_coeffs,
                     'ranks' : e_ranks
             }
 
@@ -409,8 +397,11 @@ class CIGAM:
         lambda_old = lambda_init
         c_old = np.array(c_init)
         N = len(G)
-        A = G.to_dense()[self.order].astype(np.int64)
+        edges = G.to_index()
+        M = edges.shape[0]
 
+        binomial_coefs = binomial_coefficients(N, self.order)
+        
         optimum = (-np.inf, (lambda_old, c_old))
 
         bounds = ((1, np.inf), (1, np.inf))
@@ -419,10 +410,13 @@ class CIGAM:
         for _ in range(epochs):
             # E-Step: Sample from p(ranks | G, lambda_old, c_old)
             e_data = {
-                    'N' :    N,
+                    'N' : N,
                     'L' : len(H),
+                    'K' : self.order,
+                    'M' : M,
                     'H' : H,
-                    'A' : A,
+                    'edges' : edges,
+                    'binomial_coefficients' : binomial_coeffs,
                     'lambda' : lambda_old,
                     'c' : c_old
             }
@@ -460,11 +454,19 @@ class CIGAM:
         return optimum
 
     def fit_model_bayesian(self, G, H):
+        edges = G.to_index()
+        N = len(G)
+        M = edges.shape[0]
+        binomial_coeffs = binomial_coefficients(N, self.order) 
+        
         data = {
                 'N' : len(G),
+                'K' : self.order,
                 'L' : len(H),
+                'M' : M,
                 'H' : H,
-                'A' : nx.to_numpy_array(G).astype(np.int64)
+                'edges' : edges,
+                'binomial_coefficients' : binomial_coeffs
         }
 
         fit = self.stan_model_sample(self.params_latent_posterior(), data)

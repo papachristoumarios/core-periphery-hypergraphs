@@ -9,7 +9,7 @@ def load_world_trade(location='/data/mp2242/world-trade/world-trade.csv', relabe
     if relabel:
         G = nx.convert_node_labels_to_integers(G, label_attribute='name')
 
-    return G
+    return Hypergraph.graph_to_hypergraph(G)
 
 def load_faculty(location='/data/mp2242/faculty/ComputerScience_edgelist.txt', relabel=True):
     df = pd.read_csv(location, sep='\t')
@@ -22,7 +22,8 @@ def load_faculty(location='/data/mp2242/faculty/ComputerScience_edgelist.txt', r
 
     if relabel:
         G = nx.convert_node_labels_to_integers(G, label_attribute='name')
-    return G
+
+    return Hypergraph.graph_to_hypergraph(G)
 
 def load_polblogs(location='/data/mp2242/polblogs/polblogs.mtx', relabel=True):
     df = pd.read_csv(location, sep=' ', comment='%', header=None)
@@ -30,7 +31,7 @@ def load_polblogs(location='/data/mp2242/polblogs/polblogs.mtx', relabel=True):
     if relabel:
         G = nx.convert_node_labels_to_integers(G, label_attribute='name')
 
-    return G
+    return Hypergraph.graph_to_hypergraph(G)
 
 def load_airports(location='/data/mp2242/airports/USairport500.txt', relabel=True):
     df = pd.read_csv(location, sep=' ', header=None)
