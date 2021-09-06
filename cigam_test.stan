@@ -49,6 +49,18 @@ functions {
 		return result;
 	}
 
+
+	int[] get_partition_sizes(int[,] edges_vector, int[] ranks_vector, int[] ordering_vector, int[] layers_vector, int[] H_vector, int N_size, int L_size, int M_size, int K_size) {
+		
+
+
+	}
+	
+	sizes = get_partition_sizes(edges, sorted_ranks, ordering, layers, H, N, L, M, K);
+
+
+}
+
 data {
 	int N; // number of nodes
 	int L; // number of layers
