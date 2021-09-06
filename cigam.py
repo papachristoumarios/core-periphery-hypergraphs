@@ -40,7 +40,7 @@ class CIGAM:
                 'b' : 'real<lower=1> b;',
                 'lambda' : 'real<lower=0> lambda;',
                 'c' : 'real<lower=1> c[L];',
-                'edges' : 'int edges[N, K];',
+                'edges' : 'int edges[M, K];',
                 'binomial_coefficients' : 'int binomial_coefficients[N + 1, K + 1];',
                 'ranks' : 'real<lower=0, upper=H[L]> ranks[N];'
         }

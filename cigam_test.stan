@@ -33,7 +33,7 @@ functions {
 			}
 		}
 
-		// print("Temp ", temp);
+		print("Temp ", temp);
 
 		for (i1 in 1:(N_size - 1)) {
 			while (temp[j] == 0 && j <= L_size) {
@@ -50,20 +50,19 @@ functions {
 	}
 
 
-	int[,] get_partition_sizes(int[,] edges_vector, int[] ranks_vector, int[] ordering_vector, int[] layers_vector, int[] H_vector, int N_size, int L_size, int M_size, int K_size) {
+	int[,] get_partition_sizes(int[,] edges_vector, real[] ranks_vector, int[] ordering_vector, int[] layers_vector, real[] H_vector, int N_size, int L_size, int M_size, int K_size) {
 		int sizes[N_size, L_size];
+		int j;
+		real min_value;
+		real max_value;
+		int argmin;
+		int argmax;
 
 		for (i in 1:N_size) {
 			for (l in 1:L_size) {
 				sizes[i, l] = 0;
 			}
 		}
-		int j;
-
-		int min_value;
-		int max_value;
-		int argmin;
-		int argmax;
 
 		for (m in 1:M_size) {
 			argmin = -1;
@@ -71,18 +70,18 @@ functions {
 
 			for (k in 1:K_size) {
 
-				if (argmin == -1 || ranks_vector[edges_vector[m, k] + 1] <= min_value) {
+				if (argmin == -1 || ranks_vector[ordering_vector[edges_vector[m, k] + 1]] <= min_value) {
 					argmin = edges_vector[m, k] + 1;
-					min_value = ranks_vector[edges_vector[m, k] + 1];
+					min_value = ranks_vector[ordering_vector[argmin]];
 				}
 
-				if (argmax == -1 || ranks_vector[edges_vector[m, k] + 1] >= max_value) {
+				if (argmax == -1 || ranks_vector[ordering_vector[edges_vector[m, k] + 1]] >= max_value) {
 					argmax = edges_vector[m, k] + 1;
-					max_value = ranks_vector[edges_vector[m, k] + 1];
+					max_value = ranks_vector[ordering_vector[argmax]];
 				}
 			}
 
-			sizes[argmax, layers[argmin]] += 1;
+			sizes[argmax, layers_vector[argmin]] += 1;
 
 		}
 
@@ -101,8 +100,8 @@ functions {
 
 		for (i in 1:(N_size - 1)) {
 			j = i + 1;
-			for l in (1:L_size) {
-				binomial_sizes[i, l] = binomial_coefficients[j + num_layers[i, l] - i + 1, K_size - 1 + 1] - binomial_coefficients[j - i - 1 + 1, K_size - 1 + 1];
+			for (l in 1:L_size) {
+				binomial_sizes[i, l] = binomial_coefficients_vector[j + num_layers_vector[i, l] - i + 1, K_size - 1 + 1] - binomial_coefficients_vector[j - i - 1 + 1, K_size - 1 + 1];
 				j += num_layers_vector[i, l];
 			}
 		}
@@ -138,28 +137,28 @@ model {
 
 	ranks ~ exponential(lambda);
 	ordering = sort_indices_desc(ranks);  // argsort
-	// print("Ordering");
-	// print(ordering);
+	print("Ordering");
+	print(ordering);
 
 	sorted_ranks = sort_desc(ranks); // sort
-	// print("Sorted ranks");
-	// print(ranks);
+	print("Sorted ranks");
+	print(ranks);
 
 	layers = get_layers(sorted_ranks, H, N, L); // create layers
-	// print("Layers");
-	// print(layers);
+	print("Layers");
+	print(layers);
 
 	num_layers = get_num_layers(layers, N, L);
-	// print("Num layers");
-	// print(num_layers);
+	print("Num layers");
+	print(num_layers);
 
 	sizes = get_partition_sizes(edges, sorted_ranks, ordering, layers, H, N, L, M, K);
-	// print("Sizes");
-	// print(sizes);
+	print("Sizes");
+	print(sizes);
 
 	binomial_sizes = get_binomial_sizes(num_layers, binomial_coefficients, N, L, K);
-	// print("Binomial sizes");
-	// print(binomial_sizes);
+	print("Binomial sizes");
+	print(binomial_sizes);
 
 	// Sample hypergraph
 	for (i in 1:N) {

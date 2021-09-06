@@ -8,7 +8,7 @@ from utils import *
 
 N = 100
 H = [1]
-K = 3
+K = 2
 c = [2.5]
 L = len(H)
 b = 3
