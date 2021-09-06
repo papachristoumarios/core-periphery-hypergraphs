@@ -25,7 +25,7 @@ for i, edge in enumerate(G.edges()):
 
 # import pdb; pdb.set_trace()
 
-with open('cigam_model.stan') as f:
+with open('cigam_test.stan') as f:
     model_code = f.read()
 
 stan_model = pystan.StanModel(model_code=model_code, model_name='fastmodel')
@@ -38,7 +38,7 @@ model_data = {
     'H' : H,
     'K' : K,
     'ranks' : ranks,
-    'binomial_coefficients' : binomial_coeffs, 
+    'binomial_coefficients' : binomial_coeffs,
     'M' : M,
     'edges' : edges
 }
