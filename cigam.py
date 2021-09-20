@@ -201,7 +201,7 @@ class CIGAM:
 
     def stan_model_sample(self, known, model_data, dump=True, load=True):
         stan_model = self.stan_model(known, dump=dump, load=load)
-        fit = stan_model.sampling(data=model_data, iter=100, chains=10, n_jobs=10)
+        fit = stan_model.sampling(data=model_data, iter=1000, chains=10, n_jobs=10)
 
         return fit
 
@@ -253,20 +253,23 @@ class CIGAM:
 
         return known
 
-    def visualize_posterior(self, fit, params=None, pairplot=False):
+    def visualize_posterior(self, fit, params=None, method='hist', outfile='posterior.png'):
 
         if params is None:
             params = list(fit.extract().keys())
+
+        if method == 'plot':
+            assert(len(params) == 1)
 
         df = stanfit_to_dataframe(fit, params)
 
         params = [col for col in df.columns]
 
 
-        if pairplot:
+        if method == 'pairplot':
             sns.pairplot(df, x_vars=params, y_vars=params, kind='kde')
 
-        else:
+        elif method == 'hist':
             fig, ax = plt.subplots(figsize=(10, 10))
             colors = iter(cm.rainbow(np.linspace(0, 1, len(params))))
 
@@ -282,7 +285,32 @@ class CIGAM:
             plt.ylabel('Posterior')
             plt.legend()
 
-    def visualize_degree_plot(self, G, fit):
+        elif method == 'plot':
+            plt.figure(figsize=(10, 10))
+            means = []
+            stds = []
+            for param in params:
+                if param == 'lp_':
+                    continue
+                means.append(df[param].mean())
+                stds.append(df[param].std())
+
+            means = np.array(means)
+            stds = np.array(stds)
+            layers = np.arange(1, len(params) + 1)
+            plt.plot(layers, means, color='b', marker='o')
+            plt.fill_between(layers, means - stds, means + stds, color='b', alpha=0.3)            
+
+            plt.yticks(layers)
+            plt.ylabel('Range')
+            plt.xlabel('Layer')
+
+        else:
+            raise NotImplementedError()
+
+        plt.savefig(outfile)
+
+    def visualize_degree_plot(self, G, fit, outfile='degree.png'):
 
         degrees_init = 1 + np.array([G.degree(u) for u in range(len(G))])
 
@@ -323,6 +351,8 @@ class CIGAM:
         plt.xlabel('Ranking')
         plt.ylabel('Degree')
         plt.legend()
+
+        plt.savefig(outfile)
 
         # plt.figure(figsize=(10, 10))
         # plt.imshow(A_mean)
@@ -478,6 +508,35 @@ class CIGAM:
 
         return fit
 
+    def fit_model_bayesian(self, G, H, ranks=None):
+        edges = G.to_index()
+        N = len(G)
+        M = edges.shape[0]
+        binomial_coeffs = binomial_coefficients(N, self.order) 
+        
+        data = {
+                'N' : len(G),
+                'K' : self.order,
+                'L' : len(H),
+                'M' : M,
+                'H' : H,
+                'edges' : edges,
+                'binomial_coefficients' : binomial_coeffs
+        }
+
+        if ranks is None:
+            fit = self.stan_model_sample(self.params_latent_posterior(), data)
+        else:
+            data['ranks'] = ranks
+            fit = self.stan_model_sample(self.params_posterior(), data)
+
+        self.lambda_ = fit.extract()['lambda'].mean()
+        self.b = np.exp(fit.extract()['lambda']).mean()
+        self.c = fit.extract()['c'].mean(0)
+        self.H = H
+
+        return fit
+    
     def backup_params(self):
         self.b_backup = self.b
         self.c_backup = self.c
@@ -618,19 +677,21 @@ class CIGAM:
         model_ll = self.fit_model_given_ranks_helper(G, ranks)
         model_bic = 2 * np.log(2 * len(G)) - 2 * model_ll
         opt_bic = (model_bic, model_ll, 1, copy.deepcopy(self.lambda_), copy.deepcopy(self.c))
-        print('Number of layers: {}, Model BIC: {}, lambda = {}, c = {}, H = {}'.format(1, model_bic, self.lambda_, self.c, self.H))
+        # print('Number of layers: {}, Model BIC: {}, lambda = {}, c = {}, H = {}'.format(1, model_bic, self.lambda_, self.c, self.H))
 
         for i in range(2, num_layers + 1):
             self.H = np.hstack(([self.H[0] / 2], self.H))
             self.c = np.hstack(([self.c[0]], self.c))
             model_ll = self.fit_model_given_ranks_helper(G, ranks)
-            model_bic = (i + 1) * np.log(2 * len(G)) - 2 * model_ll
+            model_bic = (i + 1) * np.log(G.num_simplices() + len(G)) - 2 * model_ll
         
             if model_bic <= opt_bic[0]:
                 opt_bic = (model_bic, model_ll, i, copy.deepcopy(self.lambda_), copy.deepcopy(self.c))
     
-            print('Number of layers: {}, Model BIC: {}, lambda = {}, b = {}, c = {}, H = {}'.format(i, model_bic, self.lambda_, self.b, self.c, self.H))
-    
+            # print('Number of layers: {}, Model BIC: {}, lambda = {}, b = {}, c = {}, H = {}'.format(i, model_bic, self.lambda_, self.b, self.c, self.H))
+        self.c = opt_bic[-1]
+        self.lambda_ = opt_bic[-2]
+
         return opt_bic
 
     def fit_model_given_ranks_helper(self, G, ranks):
@@ -651,5 +712,26 @@ class CIGAM:
 
         graph_ll = - res.fun
 
+        import pdb; pdb.set_trace()
+
         return ranks_ll + graph_ll
 
+    @staticmethod
+    def impute_ranks(ranks): 
+        ranks_not_nan = ranks[~np.isnan(ranks)]
+        sum_ranks_not_nan = np.sum(ranks_not_nan)
+        n_not_nan = len(ranks_not_nan)
+        n_nan = len(ranks) - n_not_nan 
+        bounds = ((1e-4, np.inf),)
+
+        res = minimize(lambda x: - CIGAM.ranks_log_likelihood(ranks_not_nan, n_not_nan, x, [1], sum_ranks_not_nan), 0.1, bounds=bounds, jac=lambda x: - CIGAM.ranks_log_likelihood_jacobian(ranks_not_nan, n_not_nan, x, [1], sum_ranks=sum_ranks_not_nan))
+
+        lambda_not_nan = res.x[0]
+        b_not_nan = np.exp(lambda_not_nan)
+
+        u = np.random.uniform(size=n_nan)
+        y = 1 - np.log(u * (b_not_nan - 1) + 1) / lambda_not_nan
+        
+        ranks[np.isnan(ranks)] = y
+
+        return ranks
