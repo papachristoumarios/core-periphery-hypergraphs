@@ -1,4 +1,5 @@
 # Imports
+import argparse
 import scipy.io
 import os
 import copy
@@ -36,4 +37,4 @@ matplotlib.use('Agg')
 LARGE_SIZE = 20
 plt.rc('axes', labelsize=LARGE_SIZE)
 plt.rc('axes', titlesize=LARGE_SIZE)
-sns.set_theme()
+sns.set_theme(palette='colorblind')
