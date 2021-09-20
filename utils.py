@@ -1,10 +1,23 @@
 from base import *
 from hypergraph import *
 
+def savefig(name):
+    fig = plt.gcf()
+
+    plt.savefig('{}.png'.format(name))
+    
+    with open('{}.fig.pickle'.format(name), 'wb+') as f:
+        pickle.dump(fig, f)
+
+    return fig
+
 def normalize_df(df, fields):
         for field in fields:
                 df[field] = (df[field] - df[field].min()) / (df[field].max() - df[field].min())
         return df
+
+def normalize(x):
+    return (x - x.min()) / (x.max() - x.min())
 
 @jit(nopython=True)
 def truncated_exp_inverse_cdf(q, lambda_, H):
