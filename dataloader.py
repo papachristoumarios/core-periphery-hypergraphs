@@ -71,7 +71,7 @@ def load_celegans(location='/data/mp2242/celegans', relabel=True):
     if relabel:
         G = nx.convert_node_labels_to_integers(G, label_attribute='name')
 
-    return G
+    return Hypergraph.graph_to_hypergraph(G)
 
 def load_london_underground(location='/data/mp2242/london_underground', relabel=True):
     A = np.genfromtxt(os.path.join(location, 'london_underground_network.csv'), delimiter=',', dtype=np.int64).astype(np.int64)
@@ -161,7 +161,37 @@ def load_ghtorrent_projects(location='/data/mp2242/ghtorrent-projects-hypergraph
 
     return H, num_followers
 
-def load_hypergraph(name='email-Enron', location='/data/mp2242'):
+def load_bills(name='house-bills', location='/data/mp2242', simplex_min_size=2, simplex_max_size=2):
+
+    H = Hypergraph()
+
+    with open(os.path.join(location, name, 'hyperedges-{}.txt'.format(name))) as f:
+        lines = f.read().splitlines()
+
+    for line in lines:
+        line = line.split(', ') 
+        
+        simplex = Simplex([], simplex_data = {})
+
+        for v in line:
+            simplex.add_node(int(v))
+            
+        if simplex_min_size <= len(line) <= simplex_max_size:
+            H.add_simplex(v)
+
+    labels = {}
+
+    with open(os.path.join(location, name, 'node-labels-{}.txt'.format(name))) as f1:
+        with open(os.path.join(location, name, 'node-names-{}.txt'.format(name))) as f2:
+
+            node_labels = f1.read().splitlines()
+            node_names = f2.read().splitlines()
+
+            labels = dict([(i, (int(node_label), node_name)) for i, (node_label, node_name) in enumerate(zip(node_labels, node_names))])
+
+    return H, labels
+
+def load_hypergraph(name='email-Enron', location='/data/mp2242', simplex_min_size=2, simplex_max_size=2, timestamp_min=1970, timestamp_max=2100):
     nverts = np.genfromtxt(os.path.join(location, name, '{}-nverts.txt'.format(name)), delimiter=',', dtype=np.int64)
     simplices = np.genfromtxt(os.path.join(location, name, '{}-simplices.txt'.format(name)), delimiter=',', dtype=np.int64)
     times = np.genfromtxt(os.path.join(location, name, '{}-times.txt'.format(name)), delimiter=',', dtype=np.int64)
@@ -170,24 +200,40 @@ def load_hypergraph(name='email-Enron', location='/data/mp2242'):
     j = 0
 
     for nvert, timestamp in zip(nverts, times):
-        simplex = Simplex([], data={'timestamp' : timestamp})
+        simplex = Simplex([], simplex_data={'timestamp' : timestamp})
         for i in range(nvert):
             simplex.add_node(simplices[j])
             j += 1
+        if timestamp_min <= timestamp <= timestamp_max and simplex_min_size <= nvert <= simplex_max_size:
+            H.add_simplex(simplex)
+    
+    try:
+        labels = {}
+         
+        with open(os.path.join(location, name, '{}-node-labels.txt'.format(name))) as f:
+            lines = f.read().splitlines()
 
-        H.add_simplex(simplex)
+            for line in lines:
+                line = line.split(' ')
+                labels[int(line[0])] = ' '.join(line[1:])
+    except:
+        labels = {}
+        for u in H.nodes():
+            labels[u] = u
 
-    return H
+    return H, labels
 
-def load_coauth_mag_kdd(location='/data/mp2242/coauth-MAG-KDD', simplex_min_size=2, simplex_max_size=2, completed=True):
+def load_coauth_mag_kdd(location='/data/mp2242/coauth-MAG-KDD', simplex_min_size=2, simplex_max_size=2, timestamp_min=1970, timestamp_max=2100, completed=True):
         H = Hypergraph()
 
         with open(os.path.join(location, 'coauth-MAG-KDD.txt')) as f:
                 lines = f.read().splitlines()
+        with open(os.path.join(location, 'coauth-MAG-KDD-years.txt')) as f:
+                years = f.read().splitlines()
 
-        for line in lines:
+        for line, year in zip(lines, years):
                 line = line.split(' ')
-                if simplex_min_size <= len(line) <= simplex_max_size:
+                if simplex_min_size <= len(line) <= simplex_max_size and timestamp_min <= int(year) <= timestamp_max:
                         simplex = Simplex(line)
                         H.add_simplex(simplex)
 
