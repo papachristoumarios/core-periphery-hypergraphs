@@ -12,6 +12,12 @@ class Simplex:
     def __repr__(self):
         return '[{}]'.format(', '.join(map(str, self.nodes_)))
 
+    def __eq__(self, other):
+        return tuple(sorted(self.nodes_)) == tuple(sorted(other.nodes_))
+
+    def __hash__(self):
+        return hash(tuple(sorted(self.nodes_)))
+
     def add_node(self, node):
         self.nodes_.append(node)
 
@@ -135,6 +141,23 @@ class Hypergraph:
 
         return G
 
+    def deduplicate(self):
+        H = Hypergraph()
+        edges  = set([])
+
+        for e in self.edges():
+            edges |= {e}
+
+        for e in edges:
+            H.add_simplex(e)
+
+        for u, data in self.nodes(data=True):
+            H[u] = copy.deepcopy(data)
+
+        self = H
+
+        return self
+
     def to_csr(self):
         temp_indices = collections.defaultdict(list)
         for simplex in self.simplices:
@@ -186,7 +209,9 @@ class Hypergraph:
                 H_new.add_simplex_from_nodes(nodes=new_edge, simplex_data=copy.deepcopy(edge.simplex_data))
 
             for u, data in H.nodes(data=True):
-                H_new[mapping[u]] = copy.deepcopy(data)
+                new_data = copy.deepcopy(data)
+                new_data['label'] = u
+                H_new[mapping[u]] = new_data
                 
             return H_new
         elif isinstance(H, nx.Graph):
@@ -199,9 +224,7 @@ class Hypergraph:
         values = np.zeros(len(H))
 
         for u, data in H.nodes(data=True):
-            values[u] = data[field]
-            
-        values = np.nan_to_num(values)
+            values[u] = data.get(field, np.nan)
 
         ordering = np.argsort(-values)
         
@@ -209,13 +232,24 @@ class Hypergraph:
          
         return Hypergraph.convert_node_labels_to_integers(H, mapping=mapping), values[ordering]
 
-    def to_index(self):
-        M = self.num_simplices()
-        K = len(next(self.edges()))
-        edges = np.zeros(shape=(M, K), dtype=np.int64)
+    def to_index(self, dtype=np.array):
+        if dtype == np.array:
+            M = self.num_simplices()
+            K = len(next(self.edges()))
+            edges = np.zeros(shape=(M, K), dtype=np.int64)
 
-        for i, edge in enumerate(self.edges()):
-            edges[i, :] = edge.to_index(np.array)
+            for i, edge in enumerate(self.edges()):
+                edges[i, :] = edge.to_index(np.array)
+        elif dtype == list:
+            edges = []
+
+            for edge in self.edges():
+                edges.append(edge.to_index(list))
+        elif dtype == set:
+            edges = set([])
+
+            for edge in self.edges():
+                edges.add(tuple(sorted(edge.to_index(list))))
 
         return edges
 
