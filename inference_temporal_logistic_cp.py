@@ -55,7 +55,6 @@ if __name__ == '__main__':
             
             if len(G) == 0:
                 print('Skip Timestamps {} - {}'.format(timestamp, timestamp + args.window_size))
-nohup python3.6 inference_temporal_logistic_cp.py --timestamp_min 0 --timestamp_max 19 --window 0 --step 1 --order_min 2 --order_max 25 --negative_samples 0.5  --num_simulations 10 --name email-Eu &                continue
 
             G = G.deduplicate()
             G = Hypergraph.convert_node_labels_to_integers(G)

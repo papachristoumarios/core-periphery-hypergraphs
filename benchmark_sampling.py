@@ -60,6 +60,6 @@ if __name__ == '__main__':
     plt.xlabel('Network Size ($n$)')
     plt.ylabel('Runtime (us) (log-scale)')
     plt.legend()
-    ax.set_rasterized(True)
-    plt.savefig('eta_sampling.eps')
-
+    # ax.set_rasterized(True)
+    # plt.savefig('eta_sampling.eps')
+    savefig('eta_sampling')

@@ -125,8 +125,7 @@ class LogisticCP:
 
 if __name__ == '__main__':
 
-    # G = load_world_trade()
-    G = load_celegans()
+    G = load_world_trade()
     # G, _ = load_coauth_mag_kdd(simplex_min_size=3, simplex_max_size=3, year_min=1995, year_max=2000)
     G = G.deduplicate()
     G = Hypergraph.convert_node_labels_to_integers(G)

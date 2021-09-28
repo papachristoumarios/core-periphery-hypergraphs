@@ -36,11 +36,11 @@ model {
 	// print(binomial_sizes);
 
 	// Sample hypergraph
-	c ~ pareto(1, 2); 
+	c0 ~ pareto(0.5, 2); 
 	for (i in 1:N) {
 		for (l in 1:L) {
 			if (sizes[i, l] > binomial_sizes[i, l]) {
-        print("Difference", sizes[i, l] - binomial_sizes[i, l]);
+        // print("Difference", sizes[i, l] - binomial_sizes[i, l]);
         sizes[i, l] ~ binomial(sizes[i, l], pow(c[l], -1 - H[L] + sorted_ranks[i]));
       }
       else {

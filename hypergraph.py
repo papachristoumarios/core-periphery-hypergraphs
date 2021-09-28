@@ -253,6 +253,15 @@ class Hypergraph:
 
         return edges
 
+    def incidence_matrix(self):
+        H = Hypergraph.convert_node_labels_to_integers(self)
+        indexed = H.to_index(dtype=np.array)
+        A = np.zeros((indexed.shape[0], len(H)))
+        for m in range(self.num_simplices()):
+            A[m, indexed[m]] = 1
+        
+        return A.T
+
 def mns(H, s):
     if isinstance(H, Hypergraph):
         u0, v0 = random.choice(list(H.graph.edges()))

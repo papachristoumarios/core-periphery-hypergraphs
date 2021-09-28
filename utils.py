@@ -1,10 +1,13 @@
 from base import *
 from hypergraph import *
 
-def savefig(name):
+def nanplot(x, y, **kwargs):
+    plt.plot(x[~np.isnan(y)], y[~np.isnan(y)], **kwargs)
+
+def savefig(name, ext='png'):
     fig = plt.gcf()
 
-    plt.savefig('{}.png'.format(name))
+    plt.savefig('{}.{}'.format(name, ext))
     
     with open('{}.fig.pickle'.format(name), 'wb+') as f:
         pickle.dump(fig, f)

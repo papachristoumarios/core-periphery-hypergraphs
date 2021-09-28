@@ -2,14 +2,55 @@ from base import *
 from hypergraph import *
 from utils import *
 
+def load_dataset(name, **kwargs):
+    simplex_min_size = kwargs.get('simplex_min_size', 2)
+    simplex_max_size = kwargs.get('simplex_max_size', 25)
+    timestamp_min = kwargs.get('timestamp_min', -np.inf)
+    timestamp_max = kwargs.get('timestamp_max', np.inf)
+
+    if name == 'world-trade':
+        return load_world_trade()
+    elif name == 'polblogs':
+        return load_polblogs()
+    elif name == 'ca-netscience':
+        return load_ca_netscience()
+    elif name in  ['cs-faculty', 'business-faculty', 'history-faculty']:
+        if name == 'cs-faculty':
+            return load_faculty(location='/data/mp2242/faculty/ComputerScience_edgelist.txt')
+        elif name == 'history-faculty':
+            return load_faculty(location='/data/mp2242/faculty/History_edgelist.txt')
+        elif name == 'business-faculty':
+            return load_faculty(location='/data/mp2242/faculty/Business_edgelist.txt')
+    elif name == 'celegans':
+        return load_celegans()
+    elif name == 'open-airlines':
+        return load_open_airlines()
+    elif name == 'pvc-Enron':
+        return load_pvc_Enron()
+    elif name == 'pvc-text-Reality':
+        return load_pvc_text_Reality()
+    elif name == 'coauth-MAG-KDD':
+        return load_coauth_mag_kdd(simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, timestamp_min=timestamp_min, timestamp_max=timestamp_max, completed=True)
+    elif name in ['congress-bills', 'contact-high-school', 'contact-primary-school', 'email-Eu', 'email-Enron']:
+        return load_hypergraph(name=name, simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, timestamp_min=timestamp_min, timestamp_max=timestamp_max)
+    elif name == 'ghtorrent':
+        return load_ghtorrent_projects(simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, timestamp_min=timestamp_min, timestamp_max=timestamp_max, completed=True)
+
+
 def load_world_trade(location='/data/mp2242/world-trade/world-trade.csv', relabel=True):
     df = pd.read_csv(location)
     G = nx.convert_matrix.from_pandas_edgelist(df, source='from', target='to')
+    labels = {}
 
     if relabel:
         G = nx.convert_node_labels_to_integers(G, label_attribute='name')
+        for u, data in G.nodes(data=True):
+            labels[u] = data['name']
+    else:
+        for u in G.nodes():
+            labels[u] = u
 
-    return Hypergraph.graph_to_hypergraph(G)
+    return Hypergraph.graph_to_hypergraph(G), labels
 
 def load_faculty(location='/data/mp2242/faculty/ComputerScience_edgelist.txt', relabel=True):
     df = pd.read_csv(location, sep='\t')
@@ -19,40 +60,77 @@ def load_faculty(location='/data/mp2242/faculty/ComputerScience_edgelist.txt', r
     vertex_df.set_index('# u', inplace=True)
     mapping = vertex_df['institution'].to_dict()
     nx.set_node_attributes(G, mapping, 'name')
-
+    labels = {}
+    
     if relabel:
         G = nx.convert_node_labels_to_integers(G, label_attribute='name')
+        for u, data in G.nodes(data=True):
+            labels[u] = data['name']
+    else:
+        for u in G.nodes():
+            labels[u] = u
 
-    return Hypergraph.graph_to_hypergraph(G)
+    return Hypergraph.graph_to_hypergraph(G), labels
 
 def load_polblogs(location='/data/mp2242/polblogs/polblogs.mtx', relabel=True):
     df = pd.read_csv(location, sep=' ', comment='%', header=None)
     G = nx.convert_matrix.from_pandas_edgelist(df, source=0, target=1)
+    labels = {}
+    
     if relabel:
         G = nx.convert_node_labels_to_integers(G, label_attribute='name')
+        for u in G.nodes():
+            labels[u] = G[u]['name']
+    else:
+        for u in G.nodes():
+            labels[u] = u
 
-    return Hypergraph.graph_to_hypergraph(G)
+    return Hypergraph.graph_to_hypergraph(G), labels
 
 def load_airports(location='/data/mp2242/airports/USairport500.txt', relabel=True):
     df = pd.read_csv(location, sep=' ', header=None)
     G = nx.convert_matrix.from_pandas_edgelist(df, source=0, target=1)
+    labels = {}
+    
     if relabel:
         G = nx.convert_node_labels_to_integers(G, label_attribute='name')
-    return G
+        for u in G.nodes():
+            labels[u] = G[u]['name']
+    else:
+        for u in G.nodes():
+            labels[u] = u
 
-def load_pvc_enron(location='/data/mp2242/pvc-enron/pvc-enron.csv', relabel=True):
+    return Hypergraph.graph_to_hypergraph(G), labels
+
+def load_pvc_Enron(location='/data/mp2242/pvc-enron/pvc-enron.csv', relabel=True):
     df = pd.read_csv(location, sep=' ', header=None)
     G = nx.convert_matrix.from_pandas_edgelist(df, source=0, target=1, create_using=nx.Graph)
+    labels = {}
+    
     if relabel:
         G = nx.convert_node_labels_to_integers(G, label_attribute='name')
-    return G
+        for u in G.nodes():
+            labels[u] = G[u]['name']
+    else:
+        for u in G.nodes():
+            labels[u] = u
+
+    return Hypergraph.graph_to_hypergraph(G), labels
 
 def load_pvc_text_Reality(location='/data/mp2242/pvc-text-Reality/pvc-text-Reality.csv', relabel=True):
     df = pd.read_csv(location, sep=' ', header=None)
     G = nx.convert_matrix.from_pandas_edgelist(df, source=0, target=1, create_using=nx.Graph)
+    labels = {}
+    
     if relabel:
         G = nx.convert_node_labels_to_integers(G, label_attribute='name')
-    return G
+        for u in G.nodes():
+            labels[u] = G[u]['name']
+    else:
+        for u in G.nodes():
+            labels[u] = u
+
+    return Hypergraph.graph_to_hypergraph(G), labels
 
 def load_celegans(location='/data/mp2242/celegans', relabel=True):
     A = np.genfromtxt(os.path.join(location, 'celegans_matrix.csv'), delimiter=',', dtype=np.int64).astype(np.int64)
@@ -68,10 +146,17 @@ def load_celegans(location='/data/mp2242/celegans', relabel=True):
 
     nx.set_node_attributes(G, mapping, "location")
 
+    labels = {}
+    
     if relabel:
         G = nx.convert_node_labels_to_integers(G, label_attribute='name')
+        for u, data in G.nodes(data=True):
+            labels[u] = data['name']
+    else:
+        for u in G.nodes():
+            labels[u] = u
 
-    return Hypergraph.graph_to_hypergraph(G)
+    return Hypergraph.graph_to_hypergraph(G), labels
 
 def load_london_underground(location='/data/mp2242/london_underground', relabel=True):
     A = np.genfromtxt(os.path.join(location, 'london_underground_network.csv'), delimiter=',', dtype=np.int64).astype(np.int64)
@@ -94,10 +179,17 @@ def load_london_underground(location='/data/mp2242/london_underground', relabel=
     nx.set_node_attributes(G, mapping, "location")
     nx.set_node_attributes(G, names_mapping, "name")
 
+    labels = {}
+    
     if relabel:
         G = nx.convert_node_labels_to_integers(G, label_attribute='name')
+        for u in G.nodes():
+            labels[u] = G[u]['name']
+    else:
+        for u in G.nodes():
+            labels[u] = u
 
-    return G
+    return Hypergraph.graph_to_hypergraph(G), labels
 
 def load_open_airlines(location='/data/mp2242/open_airlines', relabel=True):
     airports = pd.read_csv(os.path.join(location, 'airports.dat'), header=None).iloc[:, [4, 6, 7]]
@@ -112,10 +204,17 @@ def load_open_airlines(location='/data/mp2242/open_airlines', relabel=True):
 
     nx.set_node_attributes(G, mapping, "location")
 
+    labels = {}
+    
     if relabel:
         G = nx.convert_node_labels_to_integers(G, label_attribute='name')
+        for u in G.nodes():
+            labels[u] = G[u]['name']
+    else:
+        for u in G.nodes():
+            labels[u] = u
 
-    return G
+    return Hypergraph.graph_to_hypergraph(G), labels
 
 def load_fungal(location='/data/mp2242/fungal_networks', fungus='Pv_M_I_U_N_42d_1.mat', relabel=True):
     mat = scipy.io.loadmat(os.path.join(location, fungus))
@@ -127,19 +226,32 @@ def load_fungal(location='/data/mp2242/fungal_networks', fungus='Pv_M_I_U_N_42d_
 
     nx.set_node_attributes(G, mapping, 'location')
 
+    labels = {}
+    
     if relabel:
         G = nx.convert_node_labels_to_integers(G, label_attribute='name')
+        for u in G.nodes():
+            labels[u] = G[u]['name']
+    else:
+        for u in G.nodes():
+            labels[u] = u
 
-    return G
+    return Hypergraph.graph_to_hypergraph(G), labels
 
 def load_ca_netscience(location='/data/mp2242/ca-netscience/ca-netscience.mtx', relabel=True):
     df = pd.read_csv(location, sep=' ', header=None, skiprows=2)
     G = nx.convert_matrix.from_pandas_edgelist(df, source=0, target=1, create_using=nx.Graph)
-
+    labels = {}
+    
     if relabel:
         G = nx.convert_node_labels_to_integers(G, label_attribute='name')
+        for u in G.nodes():
+            labels[u] = G[u]['name']
+    else:
+        for u in G.nodes():
+            labels[u] = u
 
-    return G
+    return Hypergraph.graph_to_hypergraph(G), labels
 
 def load_ghtorrent_projects(location='/data/mp2242/ghtorrent-projects-hypergraph', simplex_min_size=2, simplex_max_size=2, relabel=True):
     df = pd.read_csv(os.path.join(location, 'project_members.txt'), sep='\t')
