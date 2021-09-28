@@ -3,7 +3,7 @@ from utils import *
 
 class CIGAM:
 
-    def __init__(self, c=[1.5], b=3, H=[4], order=2):
+    def __init__(self, c=[1.5], b=3, H=[4], order=2, constrained=False):
 
         if isinstance(c, float):
             self.c = np.array([c])
@@ -22,6 +22,8 @@ class CIGAM:
         assert(b > 1)
         assert(order >= 2)
 
+        self.constrained = constrained
+
         # Hypergraph Order
         self.order = order
 
@@ -38,12 +40,17 @@ class CIGAM:
                 'L' : 'int L;',
                 'H' : 'real H[L];',
                 'b' : 'real<lower=1> b;',
-                'lambda' : 'real<lower=0> lambda;',
-                'c' : 'real<lower=1> c[L];',
+                'lambda' : 'real<lower=0.001> lambda;',
+                'c_0' : 'real<lower=0> c[L];',
                 'edges' : 'int edges[M, K];',
                 'binomial_coefficients' : 'int binomial_coefficients[N + 1, K + 1];',
                 'ranks' : 'real<lower=0, upper=H[L]> ranks[N];'
         }
+
+        if self.constrained:
+            self.stan_definitions['c0'] = 'positive_ordered[L] c0;'
+        else:
+            self.stan_definitions['c0'] = 'vector<lower=0>[L] c0;'
 
     @staticmethod
     def find_c(h, H, c):
@@ -165,15 +172,21 @@ class CIGAM:
                 params.append(self.stan_definitions[key])
                 params_keys.append(key)
 
+        transformed_params_segment = '''transformed parameters {
+            vector<lower=1>[L] c;
+            c = c0 + 1;
+        }
+        '''
+
         data_text = '\n\t'.join(data)
         params_text = '\n\t'.join(params)
 
         data_segment = 'data {\n\t' + data_text + '\n}'
         params_segment = 'parameters {\n\t' + params_text + '\n}'
 
-        model_code = '{}\n\n{}\n\n{}\n\n{}'.format(functions_segment, data_segment, params_segment, model_segment)
+        model_code = '{}\n\n{}\n\n{}\n\n{}\n\n{}'.format(functions_segment, data_segment, params_segment, transformed_params_segment, model_segment)
 
-        model_name = '{}_given_{}'.format('_'.join(params_keys), '_'.join(data_keys))
+        model_name = '{}_given_{}{}'.format('_'.join(params_keys), '_'.join(data_keys), '_constrained' if self.constrained else '')
 
 
         if load:
@@ -216,7 +229,7 @@ class CIGAM:
                 'binomial_coefficients' : True,
                 'ranks' : True,
                 'lambda' : False,
-                'c' : False
+                'c0' : False
         }
 
         return known
@@ -232,7 +245,7 @@ class CIGAM:
                 'binomial_coefficients' : True,
                 'ranks' : False,
                 'lambda' : True,
-                'c' : True
+                'c0' : True
         }
 
         return known
@@ -248,7 +261,7 @@ class CIGAM:
                 'binomial_coefficients' : True,
                 'ranks' : False,
                 'lambda' : False,
-                'c' : False
+                'c0' : False
         }
 
         return known
@@ -384,7 +397,7 @@ class CIGAM:
                     'edges' : edges,
                     'binomial_coefficients' : binomial_coeffs,
                     'lambda' : lambda_old,
-                    'c' : c_old
+                    'c0' : c_old - 1
             }
 
             e_fit = self.stan_model_sample(self.latent_posterior(), e_data)
@@ -448,7 +461,7 @@ class CIGAM:
                     'edges' : edges,
                     'binomial_coefficients' : binomial_coeffs,
                     'lambda' : lambda_old,
-                    'c' : c_old
+                    'c0' : c_old - 1
             }
 
             e_fit = self.stan_model_sample(self.latent_posterior(), e_data)
@@ -711,8 +724,6 @@ class CIGAM:
         self.c = res.x
 
         graph_ll = - res.fun
-
-        import pdb; pdb.set_trace()
 
         return ranks_ll + graph_ll
 
