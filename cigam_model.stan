@@ -36,7 +36,7 @@ model {
 	// print(binomial_sizes);
 
 	// Sample hypergraph
-	c0 ~ pareto(0.5, 2); 
+	c0 ~ pareto(0.05, 2); 
 	for (i in 1:N) {
 		for (l in 1:L) {
 			if (sizes[i, l] > binomial_sizes[i, l]) {

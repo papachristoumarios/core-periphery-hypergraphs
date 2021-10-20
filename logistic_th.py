@@ -95,7 +95,7 @@ class LogisticTH:
         plt.ylabel('Node Degree (log)')
         plt.legend()
 
-    def fit(self, G, p): 
+    def fit(self, G, p, negative_samples): 
         n = len(G)
         assert(p > max(1, self.alpha))
         q = p / (p - 1)
@@ -129,7 +129,9 @@ class LogisticTH:
 
         x = normalize(x)
 
-        return x, ranks
+        ll = LogisticTH.graph_log_likelihood(G.to_index(set), len(G), self.order, ranks, self.alpha, negative_samples)
+
+        return ll, x, ranks
 
 if __name__ == '__main__':
     # G, labels = load_hypergraph(name='contact-primary-school', simplex_min_size=3, simplex_max_size=3, timestamp_min=31220, timestamp_max=31220 + 500)

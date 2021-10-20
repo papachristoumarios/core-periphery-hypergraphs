@@ -123,39 +123,41 @@ class CIGAM:
         else:
             return G, heights
 
-    def plot_sample(self, n):
+    def plot_sample(self, n, kind='degree'):
         H, h = self.sample(n)
-        G = H.clique_decomposition()
-        A = nx.to_numpy_array(G)
-        plt.figure(figsize=(10, 10))
-        plt.imshow(A)
-        plt.title('Adjacency Matrix for G ~ CIGAM($c$={}, $b$={}, $H$={})'.format(self.c, self.b, self.H))
-        plt.xlabel('Ranked Nodes by $h(u)$')
-        plt.ylabel('Ranked Nodes by $h(u)$')
-        plt.savefig('adjacency_matrix.png')
-        plt.figure(figsize=(10, 10))
-        log_rank = np.log(1 + np.arange(A.shape[0]))
-        log_degree = np.log(1 + A.sum(0))
-        log_degree = -np.sort(-log_degree)
-        p = np.polyfit(log_rank, log_degree, deg=1)
-        alpha_lasso = 0.1
-        clf_lasso = linear_model.Lasso(alpha=alpha_lasso)
-        clf_lasso.fit(log_rank.reshape(-1, 1), log_degree)
-        r2 = np.corrcoef(log_rank, log_degree)[0, 1]
-        plt.plot(log_rank, log_degree, linewidth=1, label='Realized Degree $R^2 = {}$'.format(round(r2, 2)))
-        plt.plot(log_rank, p[1] + p[0] * log_rank, linewidth=2, label='Linear Regression')
-        plt.plot(log_rank, clf_lasso.intercept_ + clf_lasso.coef_ * log_rank, linewidth=2, label='Lasso Regression ($a = {}$)'.format(alpha_lasso))
-        plt.xlabel('Node Rank by $h(u)$ (log)')
-        plt.ylabel('Node Degree (log)')
-        plt.title('Degree Plot')
-        plt.legend()
-        plt.savefig('degree_plot.eps')
+        
+        if kind == 'adjacency': 
+            G = H.clique_decomposition()
+            A = nx.to_numpy_array(G)
+            plt.figure(figsize=(10, 10))
+            plt.imshow(A)
+            plt.title('Adjacency Matrix for G ~ CIGAM($c$={}, $b$={}, $H$={})'.format(self.c, self.b, self.H))
+            plt.xlabel('Ranked Nodes by $h(u)$')
+            plt.ylabel('Ranked Nodes by $h(u)$')
+            plt.savefig('adjacency_matrix.png')
+        elif kind == 'degree':
+            degrees = H.degrees()
 
-    def stan_model(self, known, dump=True, load=True):
+            plt.figure(figsize=(10, 10))
+            log_rank = np.log(1 + np.arange(len(degrees)))
+            log_degree = np.log(1 + degrees)
+            log_degree = -np.sort(-log_degree)
+            plt.plot(log_rank, log_degree, linewidth=0, marker='x', label='Realized Degree')
+            _, (px, py) = segments_fit(X=log_rank, Y=log_degree, count=len(self.c))
+            plt.plot(px, py, marker='o', linewidth=3, label='Piecewise Linear Fit')
+
+            plt.xlabel('Node Rank by $h(u)$ (log)')
+            plt.ylabel('Node Degree (log)')
+            plt.title('Degree Plot')
+            plt.legend()
+            plt.savefig('degree_plot.eps')
+
+    def stan_model(self, known, dump=True, load=True, method='optimized'):
             
         with open('cigam_functions.stan') as f:
             functions_segment = f.read()
 
+        
         with open('cigam_model.stan') as f:
             model_segment = f.read()
 
@@ -214,9 +216,39 @@ class CIGAM:
 
     def stan_model_sample(self, known, model_data, dump=True, load=True):
         stan_model = self.stan_model(known, dump=dump, load=load)
-        fit = stan_model.sampling(data=model_data, iter=1000, chains=10, n_jobs=10)
+        fit = stan_model.sampling(data=model_data, iter=2000, chains=10, n_jobs=10)
 
         return fit
+
+    @staticmethod
+    def find_hyperparameters(G, eps, ranks=None, layers_max=10):
+        degrees = G.degrees()
+        log_degrees = np.log(1 + degrees) 
+        log_degrees = - np.sort(- log_degrees)
+        if ranks is None:
+            log_num_ranks = np.log(1 + np.arange(len(G)))
+        else:
+            log_num_ranks = ranks
+        log_err = []
+        num_layers = []
+
+        for l in range(1, layers_max + 1):
+            err, (px, py) = segments_fit(log_num_ranks, log_degrees, count=l)
+            if np.isnan(err):
+                continue
+            log_err.append(np.log(err))
+            num_layers.append(l)
+        log_err = np.array(log_err)
+        l_opt = num_layers[np.argmin(log_err)]
+        _, (px, py) = segments_fit(log_num_ranks, log_degrees, count=l_opt)
+        
+        if ranks is None: 
+            exp_px = np.exp(px)
+            H = exp_px[1:] / exp_px.max()
+        else:
+            H = (px[1:] - px.min()) / (px.max() - px.min())
+
+        return l_opt, H
 
     def params_posterior(self):
         known = {

@@ -1,6 +1,29 @@
 from base import *
 from hypergraph import *
 
+def segments_fit(X, Y, count):
+    xmin = X.min()
+    xmax = X.max()
+
+    seg = np.full(count - 1, (xmax - xmin) / count)
+
+    px_init = np.r_[np.r_[xmin, seg].cumsum(), xmax]
+    py_init = np.array([Y[np.abs(X - x) < (xmax - xmin) * 0.01].mean() for x in px_init])
+
+    def func(p):
+        seg = p[:count - 1]
+        py = p[count - 1:]
+        px = np.r_[np.r_[xmin, seg].cumsum(), xmax]
+        return px, py
+
+    def err(p):
+        px, py = func(p)
+        Y2 = np.interp(X, px, py)
+        return np.mean((Y - Y2)**2)
+
+    r = minimize(err, x0=np.r_[seg, py_init], method='Nelder-Mead')
+    return r.fun, func(r.x)
+
 def nanplot(x, y, **kwargs):
     plt.plot(x[~np.isnan(y)], y[~np.isnan(y)], **kwargs)
 

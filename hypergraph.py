@@ -41,6 +41,7 @@ class Hypergraph:
         self.simplices = []
         self.pointers = collections.defaultdict(list)
         self.node_data = collections.defaultdict(dict)
+        self.degrees_ = collections.defaultdict(int)
 
     def add_simplex_from_nodes(self, nodes, simplex_data={}):
         simplex = Simplex(nodes=nodes, simplex_data=simplex_data)
@@ -51,6 +52,7 @@ class Hypergraph:
         for node in simplex.nodes():
             self.nodes_[node] = True
             self.pointers[node].append(len(self.simplices) - 1)
+            self.degrees_[node] += 1
 
     def __getitem__(self, node):
         return self.node_data[node]
@@ -68,7 +70,10 @@ class Hypergraph:
             yield self.simplices[pointer]
 
     def degree(self, node):
-        return len(self.pointers[node])
+        return self.degrees_[node]
+
+    def degrees(self): 
+        return np.array([self.degree(u) for u in self.nodes_])
 
     def nodes(self):
         for key in self.nodes_:
@@ -94,14 +99,6 @@ class Hypergraph:
 
     def num_simplices(self):
         return len(self.simplices)
-
-    def degrees(self):
-        degrees = collections.defaultdict(int)
-        for simplex in self.simplices:
-            for node in simplex.nodes():
-                degrees[node] += 1
-
-        return degrees
 
     def simplices_to_list_of_lists(self):
         for edge in self.edges():

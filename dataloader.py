@@ -2,6 +2,9 @@ from base import *
 from hypergraph import *
 from utils import *
 
+def remove_self_loops(df, source, dest):
+    return df[df[source] != df[dest]]
+
 def load_dataset(name, **kwargs):
     simplex_min_size = kwargs.get('simplex_min_size', 2)
     simplex_max_size = kwargs.get('simplex_max_size', 25)
@@ -39,6 +42,7 @@ def load_dataset(name, **kwargs):
 
 def load_world_trade(location='/data/mp2242/world-trade/world-trade.csv', relabel=True):
     df = pd.read_csv(location)
+    df = remove_self_loops(df, 'from', 'to')
     G = nx.convert_matrix.from_pandas_edgelist(df, source='from', target='to')
     labels = {}
 
@@ -54,6 +58,7 @@ def load_world_trade(location='/data/mp2242/world-trade/world-trade.csv', relabe
 
 def load_faculty(location='/data/mp2242/faculty/ComputerScience_edgelist.txt', relabel=True):
     df = pd.read_csv(location, sep='\t')
+    df = remove_self_loops(df, '# u', 'v')
     G = nx.convert_matrix.from_pandas_edgelist(df, source='# u', target='v')
     vertexlist_filename = location.replace('edgelist', 'vertexlist')
     vertex_df = pd.read_csv(vertexlist_filename, sep='\t')
@@ -303,10 +308,15 @@ def load_bills(name='house-bills', location='/data/mp2242', simplex_min_size=2, 
 
     return H, labels
 
-def load_hypergraph(name='email-Enron', location='/data/mp2242', simplex_min_size=2, simplex_max_size=2, timestamp_min=1970, timestamp_max=2100):
+def load_hypergraph(name='email-Enron', location='/data/mp2242', simplex_min_size=2, simplex_max_size=2, timestamp_min=-np.inf, timestamp_max=np.inf, load_features=True):
     nverts = np.genfromtxt(os.path.join(location, name, '{}-nverts.txt'.format(name)), delimiter=',', dtype=np.int64)
     simplices = np.genfromtxt(os.path.join(location, name, '{}-simplices.txt'.format(name)), delimiter=',', dtype=np.int64)
     times = np.genfromtxt(os.path.join(location, name, '{}-times.txt'.format(name)), delimiter=',', dtype=np.int64)
+    
+    if load_features:
+        features = pd.read_csv(os.path.join(location, name, '{}-features.txt'.format(name)), delimiter=' ', header=None).set_index(0)
+        features = features.to_dict()
+
 
     H = Hypergraph()
     j = 0
@@ -318,7 +328,8 @@ def load_hypergraph(name='email-Enron', location='/data/mp2242', simplex_min_siz
             j += 1
         if timestamp_min <= timestamp <= timestamp_max and simplex_min_size <= nvert <= simplex_max_size:
             H.add_simplex(simplex)
-    
+
+
     try:
         labels = {}
          
@@ -332,6 +343,9 @@ def load_hypergraph(name='email-Enron', location='/data/mp2242', simplex_min_siz
         labels = {}
         for u in H.nodes():
             labels[u] = u
+
+    for key, val in features.items():
+        H.set_attribute(key, 'features', val)
 
     return H, labels
 

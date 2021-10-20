@@ -21,7 +21,7 @@ import pickle
 import multiprocessing
 
 from sklearn import linear_model
-from scipy.optimize import minimize
+from scipy.optimize import minimize, curve_fit
 from scipy import stats
 from scipy import special
 from scipy import sparse as scipy_sparse

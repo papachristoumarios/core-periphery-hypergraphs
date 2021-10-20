@@ -34,22 +34,6 @@ def plot_singular_values(G_list, ranks_list, labels_list, cigam, name):
     plt.legend()
     savefig('singular_values_numeric_rank_{}'.format(name))
 
-    # plt.figure(figsize=(10, 10))
-    # plt.xlabel('Log Node rank')
-    # plt.ylabel('Log Singular Value')
-    # plt.title('Singular Values')
-
-    # colors = iter(cm.rainbow(np.linspace(0, 1, len(G_list))))
-    
-    # for (log_S, ranks, label) in zip(S_list, ranks_list, labels_list):
-    #    color = next(colors)
-    #    log_ranks = np.log(ranks)
-    #     p = np.polyfit(log_ranks, log_S, deg=1)
-    #     plt.plot(log_ranks, log_S, color=color, marker='x', linewidth=0, label='Singular Values ({})'.format(label))
-    #     plt.plot(log_ranks, log_ranks * p[0] + p[1], color=color, label='Linear Fit $R^2 = {}$ ({})'.format(round(np.corrcoef(log_ranks, log_S)[0, 1], 2), label))
-    # plt.legend()
-    # savefig('singular_values_node_rank_{}'.format(name))
-
 if __name__ == '__main__':
     args = get_argparser()
     
