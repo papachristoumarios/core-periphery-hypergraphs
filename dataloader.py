@@ -315,8 +315,7 @@ def load_hypergraph(name='email-Enron', location='/data/mp2242', simplex_min_siz
     
     if load_features:
         features = pd.read_csv(os.path.join(location, name, '{}-features.txt'.format(name)), delimiter=' ', header=None).set_index(0)
-        features = features.to_dict()
-
+        features = features.to_dict()[1]        
 
     H = Hypergraph()
     j = 0
@@ -343,9 +342,10 @@ def load_hypergraph(name='email-Enron', location='/data/mp2242', simplex_min_siz
         labels = {}
         for u in H.nodes():
             labels[u] = u
-
-    for key, val in features.items():
-        H.set_attribute(key, 'features', val)
+    
+    if load_features:
+        for key, val in features.items():
+            H.set_attribute(key, 'features', val)
 
     return H, labels
 

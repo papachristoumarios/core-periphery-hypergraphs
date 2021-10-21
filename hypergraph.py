@@ -42,6 +42,7 @@ class Hypergraph:
         self.pointers = collections.defaultdict(list)
         self.node_data = collections.defaultdict(dict)
         self.degrees_ = collections.defaultdict(int)
+        self.simplex_sizes = collections.defaultdict(int)
 
     def add_simplex_from_nodes(self, nodes, simplex_data={}):
         simplex = Simplex(nodes=nodes, simplex_data=simplex_data)
@@ -49,6 +50,7 @@ class Hypergraph:
 
     def add_simplex(self, simplex):
         self.simplices.append(simplex)
+        self.simplex_sizes[len(simplex)] += 1
         for node in simplex.nodes():
             self.nodes_[node] = True
             self.pointers[node].append(len(self.simplices) - 1)
@@ -97,8 +99,16 @@ class Hypergraph:
     def __len__(self):
         return len(self.nodes_)
 
-    def num_simplices(self):
-        return len(self.simplices)
+    def num_simplices(self, separate=False):
+        if separate:
+            k_min = min(self.simplex_sizes.keys())
+            k_max = max(self.simplex_sizes.keys())
+            num_simplices = np.zeros(k_max - k_min + 1, dtype=int)
+            for k in range(k_min, k_max + 1):
+                num_simplices[k - k_min] = self.simplex_sizes[k]
+            return num_simplices
+        else:
+            return len(self.simplices)
 
     def simplices_to_list_of_lists(self):
         for edge in self.edges():
@@ -231,12 +241,17 @@ class Hypergraph:
 
     def to_index(self, dtype=np.array):
         if dtype == np.array:
-            M = self.num_simplices()
-            K = len(next(self.edges()))
-            edges = np.zeros(shape=(M, K), dtype=np.int64)
+            M = self.num_simplices(separate=True).max()
+            lengths = [len(e) for e in self.edges()]
+            K_max = max(lengths)
+            K_min = min(lengths)
+            edges = - np.ones(shape=(K_max - K_min + 1, M, K_max), dtype=np.int64)
+            indexes = np.zeros(K_max - K_min + 1, dtype=int)
 
             for i, edge in enumerate(self.edges()):
-                edges[i, :] = edge.to_index(np.array)
+                k = len(edge) - K_min
+                edges[k, indexes[k], 0:len(edge)] = edge.to_index(np.array)
+                indexes[k] += 1
         elif dtype == list:
             edges = []
 

@@ -5,7 +5,8 @@ model {
 	int num_layers[N, L];
 	int sizes[N, L];
 	int binomial_sizes[N, L]; 
-  int ordered_edges[M, K];
+  int ordered_edges[max(M), K_max];
+  int j;
 
 	lambda ~ gamma(1, 2);
 	ranks ~ exponential(lambda);
@@ -17,35 +18,47 @@ model {
 	// print("Sorted ranks");
 	// print(sorted_ranks);
 
-  ordered_edges = order_edges(edges, ordering, M, K);
 
-	layers = get_layers(sorted_ranks, H, N, L); // create layers
-	// print("Layers");
-	// print(layers);
+  layers = get_layers(sorted_ranks, H, N, L); // create layers
+  // print("Layers");
+  // print(layers);
+  
+  num_layers = get_num_layers(layers, N, L);
+  // print("Num layers");
+  // print(num_layers);
+  
+  for (k in K_min:K_max) {
+    j = k - K_min + 1;
 
-	num_layers = get_num_layers(layers, N, L);
-	// print("Num layers");
-	// print(num_layers);
-
-	sizes = get_partition_sizes(ordered_edges, sorted_ranks,  layers, H, N, L, M, K);
-	// print("Sizes");
-	// print(sizes);
-
-	binomial_sizes = get_binomial_sizes(num_layers, binomial_coefficients, N, L, K);
-	// print("Binomial sizes");
-	// print(binomial_sizes);
-
-	// Sample hypergraph
-	c0 ~ pareto(0.05, 2); 
-	for (i in 1:N) {
-		for (l in 1:L) {
-			if (sizes[i, l] > binomial_sizes[i, l]) {
-        // print("Difference", sizes[i, l] - binomial_sizes[i, l]);
-        sizes[i, l] ~ binomial(sizes[i, l], pow(c[l], -1 - H[L] + sorted_ranks[i]));
+    for (m in 1:M[j]) {
+      for (i in 1:K_max) {
+        ordered_edges[m, i] = -1;
       }
-      else {
-        sizes[i, l] ~ binomial(binomial_sizes[i, l], pow(c[l], -1 - H[L] + sorted_ranks[i]));
-		  }
+    }
+  
+    for (i in 1:N) {
+      for (l in 1:L) {
+        sizes[i, l] = 0;
+        binomial_sizes[i, l] = 0;
       }
-	}
+    }
+
+    // TODO initialize arrays
+    ordered_edges  = order_edges(edges[j, 1:M[j], 1:K_max], ordering, M[j], k);
+    sizes = get_partition_sizes(ordered_edges, sorted_ranks,  layers, H, N, L, M[j], k);
+    // print("Sizes");
+    // print(sizes);
+
+    binomial_sizes = get_binomial_sizes(num_layers, binomial_coefficients, N, L, k);
+    // print("Binomial sizes");
+    // print(binomial_sizes);
+
+    // Sample hypergraph
+    c0 ~ pareto(0.05, 2); 
+    for (i in 1:N) {
+      for (l in 1:L) {
+          sizes[i, l] ~ binomial(binomial_sizes[i, l], pow(c[l], -1 - H[L] + sorted_ranks[i]));
+        }
+    }
+  }
 }

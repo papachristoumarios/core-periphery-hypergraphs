@@ -61,7 +61,7 @@ functions {
 	}
 
 
-	int[,] get_partition_sizes(int[,] edges_vector, real[] ranks_vector, int[] layers_vector, real[] H_vector, int N_size, int L_size, int M_size, int K_size) {
+	int[,] get_partition_sizes(int[,] ordered_edges_vector, real[] ranks_vector, int[] layers_vector, real[] H_vector, int N_size, int L_size, int M_size, int K_size) {
 		int sizes[N_size, L_size];
 		int j;
 		real min_value;
@@ -76,21 +76,25 @@ functions {
 		}
 
 		for (m in 1:M_size) {
-			argmin = -1;
-			argmax = -1;
+      // ranks are ordered decreasing
+			argmin = max(ordered_edges_vector[m, 1:K_size]);
+      argmax = min(ordered_edges_vector[m, 1:K_size]);
+			
+      // argmin = -1;
+      // argmax = -1;
+			// for (k in 1:K_size) {
+      //    if (edges_vector[m, k] == -1) break;
+              
+			//	if (argmin == -1 || ranks_vector[edges_vector[m, k]] <= min_value) {
+			//		argmin = edges_vector[m, k];
+			//		min_value = ranks_vector[argmin];
+			//	}
 
-			for (k in 1:K_size) {
-
-				if (argmin == -1 || ranks_vector[edges_vector[m, k]] <= min_value) {
-					argmin = edges_vector[m, k];
-					min_value = ranks_vector[argmin];
-				}
-
-				if (argmax == -1 || ranks_vector[edges_vector[m, k]] >= max_value) {
-					argmax = edges_vector[m, k];
-					max_value = ranks_vector[argmax];
-				}
-			}
+			//	if (argmax == -1 || ranks_vector[edges_vector[m, k]] >= max_value) {
+			//		argmax = edges_vector[m, k];
+			//		max_value = ranks_vector[argmax];
+			//	}
+			// }
 
 			sizes[argmax, layers_vector[argmin]] += 1;
 

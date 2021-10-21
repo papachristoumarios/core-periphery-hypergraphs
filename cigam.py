@@ -3,7 +3,7 @@ from utils import *
 
 class CIGAM:
 
-    def __init__(self, c=[1.5], b=3, H=[4], order=2, constrained=False):
+    def __init__(self, c=[1.5], b=3, H=[1], order_min=2, order_max=2, constrained=False):
 
         if isinstance(c, float):
             self.c = np.array([c])
@@ -20,12 +20,13 @@ class CIGAM:
         assert(np.all(H == np.sort(H)))
         assert(len(self.H) == len(self.c))
         assert(b > 1)
-        assert(order >= 2)
+        assert(order_min >= 2 and order_max >= order_min)
 
         self.constrained = constrained
 
         # Hypergraph Order
-        self.order = order
+        self.order_min = order_min
+        self.order_max = order_max
 
         # Ranks parameter
         self.lambda_ = np.log(b)
@@ -35,15 +36,16 @@ class CIGAM:
 
         self.stan_definitions = {
                 'N' : 'int N;',
-                'M' : 'int M;',
-                'K' : 'int K;',
+                'K_min' : 'int K_min;',
+                'K_max' : 'int K_max;',
+                'M' : 'int M[K_max - K_min + 1];',
                 'L' : 'int L;',
                 'H' : 'real H[L];',
                 'b' : 'real<lower=1> b;',
                 'lambda' : 'real<lower=0.001> lambda;',
                 'c_0' : 'real<lower=0> c[L];',
-                'edges' : 'int edges[M, K];',
-                'binomial_coefficients' : 'int binomial_coefficients[N + 1, K + 1];',
+                'edges' : 'int edges[K_max - K_min + 1, max(M), K_max];',
+                'binomial_coefficients' : 'int binomial_coefficients[N + 1, K_max + 1];',
                 'ranks' : 'real<lower=0, upper=H[L]> ranks[N];'
         }
 
@@ -71,24 +73,6 @@ class CIGAM:
         self.lambda_ = np.log(b_)
         return b_
 
-    def bias_matrix(self, N, return_ranks=True):
-        P = np.zeros(tuple(self.order * [N]))
-        h = self.continuous_tree_sample(N=N)
-        h = np.sort(h)
-
-        for edge in itertools.combinations(range(N), self.order):
-            edge = np.array(edge)
-            bias = CIGAM.find_c(h[edge], self.H, self.c)**(-1-h[edge].min())
-           
-            for dedge in itertools.permutations(edge, self.order):
-                P[dedge] = bias
-        
-        if return_ranks:
-            return P, self.H[-1] - h
-        else:
-            return P, h
-
-
     def sample(self, N, return_ranks=True, method='ball_dropping'):
         assert(method in ['ball_dropping', 'naive'])
         heights = self.continuous_tree_sample(N=N)
@@ -100,23 +84,25 @@ class CIGAM:
         layers, num_layers = CIGAM.get_layers(ranks, self.H)
 
         if method == 'naive':
-            for edge in itertools.combinations(range(N), self.order):
-                edge = np.array(edge)
-                heights_min = heights[edge].min()
-                heights_argmax = edge[heights[edge].argmax()]
-                p_edge = self.c[layers[heights_argmax]]**(-1-heights_min)
-                if np.random.uniform() <= p_edge:
-                    G.add_simplex_from_nodes(nodes=edge.tolist(), simplex_data = {})
+            for order in range(self.order_min, self.order_max + 1):
+                for edge in itertools.combinations(range(N), order):
+                    edge = np.array(edge)
+                    heights_min = heights[edge].min()
+                    heights_argmax = edge[heights[edge].argmax()]
+                    p_edge = self.c[layers[heights_argmax]]**(-1-heights_min)
+                    if np.random.uniform() <= p_edge:
+                        G.add_simplex_from_nodes(nodes=edge.tolist(), simplex_data = {})
         else:
-            for i in range(heights.shape[0] - self.order + 1):
-                j = i + 1
-                for l in range(num_layers.shape[-1]):
-                    if num_layers[i, l] >= 1 and j + num_layers[i, l] - i >= self.order - 1:
-                        batch = ball_dropping_helper(S=[ordering[i]], V=ordering[i+1:j+num_layers[i, l]], k_f=1, n_f=num_layers[i, l], p=self.c[l]**(-1-heights[i]), k=self.order, directed=False)       
-                        for edge in batch:
-                            G.add_simplex_from_nodes(nodes=edge, simplex_data = {})
+            for order in range(self.order_min, self.order_max + 1):
+                for i in range(heights.shape[0] - order + 1):
+                    j = i + 1
+                    for l in range(num_layers.shape[-1]):
+                        if num_layers[i, l] >= 1 and j + num_layers[i, l] - i >= order - 1:
+                            batch = ball_dropping_helper(S=[ordering[i]], V=ordering[i+1:j+num_layers[i, l]], k_f=1, n_f=num_layers[i, l], p=self.c[l]**(-1-heights[i]), k=order, directed=False)       
+                            for edge in batch:
+                                G.add_simplex_from_nodes(nodes=edge, simplex_data = {})
                     
-                    j += num_layers[i, l]
+                        j += num_layers[i, l]
 
         if return_ranks:
             return G, ranks
@@ -216,7 +202,7 @@ class CIGAM:
 
     def stan_model_sample(self, known, model_data, dump=True, load=True):
         stan_model = self.stan_model(known, dump=dump, load=load)
-        fit = stan_model.sampling(data=model_data, iter=2000, chains=10, n_jobs=10)
+        fit = stan_model.sampling(data=model_data, iter=2000, chains=10, n_jobs=10, control=dict(adapt_delta=0.9))
 
         return fit
 
@@ -254,7 +240,8 @@ class CIGAM:
         known = {
                 'N' : True,
                 'L' : True,
-                'K' : True,
+                'K_min' : True,
+                'K_max' : True,
                 'M' : True,
                 'H' : True,
                 'edges' : True,
@@ -270,7 +257,8 @@ class CIGAM:
         known = {
                 'N' : True,
                 'L' : True,
-                'K' : True, 
+                'K_min' : True,
+                'K_max' : True,
                 'M' : True,
                 'H' : True,
                 'edges' : True,
@@ -286,7 +274,8 @@ class CIGAM:
         known = {
                 'N' : True,
                 'L' : True,
-                'K' : True,
+                'K_min' : True,
+                'K_max' : True,
                 'M' : True,
                 'H' : True,
                 'edges' : True,
@@ -412,18 +401,19 @@ class CIGAM:
         c_old = c_init
         N = len(G)
         edges = G.to_index()
-        M = edges.shape[0]
+        M = G.num_simplices(separate=True)
 
         optimum = (-np.inf, (lambda_old, b_old, c_old))
 
-        binomial_coefs = binomial_coefficients(N, self.order)
+        binomial_coefs = binomial_coefficients(N, self.order_max)
 
         for _ in range(epochs):
             # E-Step: Sample from p(heights | G, b_old, c_old)
             e_data = {
                     'N' : N,
                     'L' : len(H),
-                    'K' : self.order,
+                    'K_min' : self.order_min,
+                    'K_max' : self.order_max,
                     'M' : M, 
                     'H' : H,
                     'edges' : edges,
@@ -441,7 +431,8 @@ class CIGAM:
             m_data = {
                     'N' : N,
                     'L' : len(H),
-                    'K' : self.order,
+                    'K_min' : self.order_min,
+                    'K_max' : self.order_max,
                     'M' : M,
                     'H' : H,
                     'edges' : edges,
@@ -528,40 +519,16 @@ class CIGAM:
 
         return optimum
 
-    def fit_model_bayesian(self, G, H):
-        edges = G.to_index()
-        N = len(G)
-        M = edges.shape[0]
-        binomial_coeffs = binomial_coefficients(N, self.order) 
-        
-        data = {
-                'N' : len(G),
-                'K' : self.order,
-                'L' : len(H),
-                'M' : M,
-                'H' : H,
-                'edges' : edges,
-                'binomial_coefficients' : binomial_coeffs
-        }
-
-        fit = self.stan_model_sample(self.params_latent_posterior(), data)
-
-        self.lambda_ = fit.extract()['lambda'].mean()
-        self.b = np.exp(fit.extract()['lambda']).mean()
-        self.c = fit.extract()['c'].mean(0)
-        self.H = H
-
-        return fit
-
     def fit_model_bayesian(self, G, H, ranks=None):
         edges = G.to_index()
         N = len(G)
-        M = edges.shape[0]
-        binomial_coeffs = binomial_coefficients(N, self.order) 
+        M = G.num_simplices(separate=True)
+        binomial_coeffs = binomial_coefficients(N, self.order_max) 
         
         data = {
                 'N' : len(G),
-                'K' : self.order,
+                'K_min' : self.order_min,
+                'K_max' : self.order_max,
                 'L' : len(H),
                 'M' : M,
                 'H' : H,
@@ -595,43 +562,43 @@ class CIGAM:
         self.H = self.H_backup
 
     @staticmethod
-    def graph_log_likelihood(G, ranks, H, c, order, sizes=None, neg_sizes=None, layers=None, num_layers=None):
+    def graph_log_likelihood(G, ranks, H, c, order_min, order_max, sizes=None, neg_sizes=None, layers=None, num_layers=None):
     
         if sizes is None or  neg_sizes is None or layers is None or num_layers is None:
-            sizes, neg_sizes, layers, num_layers = CIGAM.get_partition_sizes(G, ranks, order, H)
+            sizes, neg_sizes, layers, num_layers = CIGAM.get_partition_sizes(G, ranks, order_min, order_max, H)
 
-        result = np.sum([sizes[i, l] * np.log(c[l]) * (-1-H[-1]+ranks[i]) + neg_sizes[i, l] * np.log(1 - c[l]**(-1-H[-1]+ranks[i])) for i in range(len(ranks)) for l in range(len(H))])
-
+        result = np.sum([sizes[order - order_min, i, l] * np.log(c[l]) * (-1-H[-1]+ranks[i]) + neg_sizes[order - order_min, i, l] * np.log(1 - c[l]**(-1-H[-1]+ranks[i])) for i in range(len(ranks)) for l in range(len(H)) for order in range(order_min, order_max + 1)])
+        print(result)
         return result
 
     @staticmethod
     @jit(forceobj=True)
-    def graph_log_likelihood_jacobian(G, ranks, H, c, order, sizes=None, neg_sizes=None, layers=None, num_layers=None):
+    def graph_log_likelihood_jacobian(G, ranks, H, c, order_min, order_max, sizes=None, neg_sizes=None, layers=None, num_layers=None):
         if sizes is None or neg_sizes is None or layers is None or num_layers is None:
-            sizes, neg_sizes, layers, num_layers = CIGAM.get_partition_sizes(G, ranks, order, H)
+            sizes, neg_sizes, layers, num_layers = CIGAM.get_partition_sizes(G, ranks, order_min, order_max, H)
         return np.array([np.sum([
-            sizes[u, l] * (-1 - H[-1] + ranks[u]) / (c[l]) -
+            sizes[order - order_min, u, l] * (-1 - H[-1] + ranks[u]) / (c[l]) -
             #neg_sizes[u] * (-1 - H[-1] + ranks[u]) * c[-1]**(-2 + ranks[u] - H[-1]) / (1 - c[-1]**(-1-H[-1]+ranks[u])) 
-            neg_sizes[u, l] / (c[l]) * (-1-H[-1] + ranks[u]) * (c[l])**(-2-H[-1] + ranks[u]) 
-            for u in G.nodes()]) for l in range(len(H))])
+            neg_sizes[order - order_min, u, l] / (c[l]) * (-1-H[-1] + ranks[u]) * (c[l])**(-2-H[-1] + ranks[u]) 
+            for u in G.nodes() for order in range(order_min, order_max + 1)]) for l in range(len(H))])
         
     @staticmethod
-    def complete_log_likelihood(G, ranks, H, lambda_, c, order, sizes=None, neg_sizes=None, layers=None, num_layers=None, sum_ranks=None):
-        return CIGAM.ranks_log_likelihood(None if sum_ranks is not None else ranks, len(G), lambda_, H, sum_ranks) + CIGAM.graph_log_likelihood(G, ranks, H, c, order, sizes=sizes, neg_sizes=neg_sizes, layers=layers, num_layers=num_layers)
+    def complete_log_likelihood(G, ranks, H, lambda_, c, order_min, order_max, sizes=None, neg_sizes=None, layers=None, num_layers=None, sum_ranks=None):
+        return CIGAM.ranks_log_likelihood(None if sum_ranks is not None else ranks, len(G), lambda_, H, sum_ranks) + CIGAM.graph_log_likelihood(G, ranks, H, c, order_min, order_max, sizes=sizes, neg_sizes=neg_sizes, layers=layers, num_layers=num_layers)
 
     @staticmethod
     @jit(forceobj=True)
-    def q_function(G, ranks_post, H, lambda_, c, order, sizes_post=None, neg_sizes_post=None, sum_ranks=None):
+    def q_function(G, ranks_post, H, lambda_, c, order_min, order_max, sizes_post=None, neg_sizes_post=None, sum_ranks=None):
         if sizes_post is None or neg_sizes_post is None:
-            sizes_post, neg_sizes_post, layers_post, num_layers_post = CIGAM.get_partition_sizes(G, ranks_post, order, H)
+            sizes_post, neg_sizes_post, layers_post, num_layers_post = CIGAM.get_partition_sizes(G, ranks_post, order_min, order_max, H)
         if sum_ranks is None:
             sum_ranks = ranks_post.sum(1)
 
-        return np.mean([CIGAM.complete_log_likelihood(G, ranks_post[i, :], H, lambda_, c, order, sizes=sizes_post[i, :], neg_sizes=neg_sizes_post[i, :], sum_ranks=sum_ranks[i]) for i in range(ranks_post.shape[0])])
+        return np.mean([CIGAM.complete_log_likelihood(G, ranks_post[i, :], H, lambda_, c, order_min, order_max, sizes=sizes_post[:, i, :], neg_sizes=neg_sizes_post[:, i, :], sum_ranks=sum_ranks[i]) for i in range(ranks_post.shape[0])])
 
     @staticmethod
-    def complete_log_likelihood_jacobian(G, ranks, H, lambda_, c, order, sizes=None, neg_sizes=None, sum_ranks=None, layers=None, num_layers=None):
-        return np.hstack(([CIGAM.ranks_log_likelihood_jacobian(None if sum_ranks is not None else ranks, len(G), lambda_, H, sum_ranks)], CIGAM.graph_log_likelihood_jacobian(G, ranks, H, c, order, sizes=sizes, neg_sizes=neg_sizes, layers=layers, num_layers=num_layers)))
+    def complete_log_likelihood_jacobian(G, ranks, H, lambda_, c, order_min, order_max, sizes=None, neg_sizes=None, sum_ranks=None, layers=None, num_layers=None):
+        return np.hstack(([CIGAM.ranks_log_likelihood_jacobian(None if sum_ranks is not None else ranks, len(G), lambda_, H, sum_ranks)], CIGAM.graph_log_likelihood_jacobian(G, ranks, H, c, order_min, order_max, sizes=sizes, neg_sizes=neg_sizes, layers=layers, num_layers=num_layers)))
 
     @staticmethod
     def ranks_log_likelihood(ranks, n, lambda_, H, sum_ranks=None, num_terms=2):
@@ -682,10 +649,10 @@ class CIGAM:
         return layers, num_layers
 
     @staticmethod
-    def get_partition_sizes(G, ranks, order, H):
-        sizes = np.zeros(shape=ranks.shape + (len(H),))
+    def get_partition_sizes(G, ranks, order_min, order_max, H):
+        sizes = np.zeros(shape=(order_max - order_min + 1,) + ranks.shape + (len(H),))
         neg_sizes = np.zeros(shape=sizes.shape, dtype=np.int64)
-        binomial_coeffs = binomial_coefficients(len(G), order - 1)
+        binomial_coeffs = binomial_coefficients(len(G), order_max - 1)
         layers = np.zeros(shape=ranks.shape, dtype=np.int64)
         num_layers = np.zeros(shape=ranks.shape + (len(H),), dtype=np.int64)
 
@@ -693,20 +660,22 @@ class CIGAM:
             layers, num_layers = CIGAM.get_layers(ranks, H)
             if G is not None:
                 for edge in G.edges():
+                    order = len(edge)
                     edge_index = edge.to_index()
                     argmax = edge_index[np.argmax(ranks[edge_index])]
                     argmin = layers[edge_index[np.argmin(ranks[edge_index])]]
-                    sizes[argmax, argmin] += 1            
+                    sizes[order - order_min, argmax, argmin] += 1            
 
-            for i in range(num_layers.shape[0] - 1):
-                j = i + 1
-                for l in range(num_layers.shape[1]):
-                    neg_sizes[i, l] = binomial_coeffs[j + num_layers[i, l] - i, order - 1] - binomial_coeffs[j - i - 1, order - 1]  - sizes[i, l]
-                    j += num_layers[i, l]
+            for order in range(order_min, order_max + 1):
+                for i in range(num_layers.shape[0] - 1):
+                    j = i + 1
+                    for l in range(num_layers.shape[1]):
+                        neg_sizes[order - order_min, i, l] = binomial_coeffs[j + num_layers[i, l] - i, order - 1] - binomial_coeffs[j - i - 1, order - 1]  - sizes[order - order_min, i, l]
+                        j += num_layers[i, l]
                     
         else:
             for i in range(ranks.shape[0]):
-                sizes_temp, neg_sizes_temp, layers_temp, num_layers_temp = CIGAM.get_partition_sizes(G, ranks[i], order, H)
+                sizes_temp, neg_sizes_temp, layers_temp, num_layers_temp = CIGAM.get_partition_sizes(G, ranks[i], order_min, order_max, H)
                 sizes[i] = sizes_temp
                 neg_sizes[i] = neg_sizes_temp
                 layers[i] = layers_temp
@@ -749,10 +718,10 @@ class CIGAM:
         self.lambda_ = res.x[0]
 
         bounds = len(self.H) * ((1 + 1e-4, np.inf),)
-        sizes, neg_sizes, _, _ = CIGAM.get_partition_sizes(G, ranks, self.order, self.H)
-
+        sizes, neg_sizes, _, _ = CIGAM.get_partition_sizes(G, ranks, self.order_min, self.order_max, self.H)
         
-        res = minimize(lambda x: - CIGAM.graph_log_likelihood(G, ranks, self.H, x, self.order, sizes, neg_sizes), self.c, bounds=bounds, jac=lambda x: - CIGAM.graph_log_likelihood_jacobian(G, ranks, self.H, x, self.order, sizes, neg_sizes))
+        # res = minimize(lambda x: - CIGAM.graph_log_likelihood(G, ranks, self.H, x, self.order_min, self.order_max, sizes, neg_sizes), self.c, bounds=bounds)
+        res = minimize(lambda x: - CIGAM.graph_log_likelihood(G, ranks, self.H, x, self.order_min, self.order_max, sizes, neg_sizes), self.c, bounds=bounds, jac=lambda x: - CIGAM.graph_log_likelihood_jacobian(G, ranks, self.H, x, self.order_min, self.order_max, sizes, neg_sizes))
         self.c = res.x
 
         graph_ll = - res.fun
