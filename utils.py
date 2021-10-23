@@ -57,7 +57,7 @@ def truncated_exp_inverse_cdf(q, lambda_, H):
 
 @jit(nopython=True)
 def binomial_coefficients(n, k):
-        C = np.zeros(shape=(n + 1, k + 1), dtype=np.int64)
+        C = np.zeros(shape=(n + 1, k + 1), dtype=np.float64)
 
         for i in range(0, n + 1):
                 for j in range(0, min(i, k) + 1):
@@ -69,7 +69,7 @@ def binomial_coefficients(n, k):
         return C
 
 def stanfit_to_dataframe(fit, params=None):
-    data = fit.extract()
+    data = fit
     result = {}
     if params is None:
         params = data.keys()

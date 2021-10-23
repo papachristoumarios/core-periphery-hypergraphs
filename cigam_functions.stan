@@ -1,4 +1,8 @@
 functions {
+  real binomial_real_lpdf(real m, real n, real p) {
+      return m * log(p) + (n - m) * log(1 - p);
+  } 
+
   int[,] order_edges(int[,] edges_vector, int[] ordering_vector, int M_size, int K_size) {
     int ordered_edges[M_size, K_size];
 
@@ -61,8 +65,8 @@ functions {
 	}
 
 
-	int[,] get_partition_sizes(int[,] ordered_edges_vector, real[] ranks_vector, int[] layers_vector, real[] H_vector, int N_size, int L_size, int M_size, int K_size) {
-		int sizes[N_size, L_size];
+	real[,] get_partition_sizes(int[,] ordered_edges_vector, real[] ranks_vector, int[] layers_vector, real[] H_vector, int N_size, int L_size, int M_size, int K_size) {
+		real sizes[N_size, L_size];
 		int j;
 		real min_value;
 		real max_value;
@@ -103,8 +107,8 @@ functions {
 		return sizes;
 	}
 
-	int[,] get_binomial_sizes(int[,] num_layers_vector, int[,] binomial_coefficients_vector, int N_size, int L_size, int K_size) {
-		int binomial_sizes[N_size, L_size];
+	real[,] get_binomial_sizes(int[,] num_layers_vector, real[,] binomial_coefficients_vector, int N_size, int L_size, int K_size) {
+		real binomial_sizes[N_size, L_size];
 		int j;
 
 		for (i in 1:N_size) {

@@ -45,7 +45,7 @@ class CIGAM:
                 'lambda' : 'real<lower=0.001> lambda;',
                 'c_0' : 'real<lower=0> c[L];',
                 'edges' : 'int edges[K_max - K_min + 1, max(M), K_max];',
-                'binomial_coefficients' : 'int binomial_coefficients[N + 1, K_max + 1];',
+                'binomial_coefficients' : 'real binomial_coefficients[N + 1, K_max + 1];',
                 'ranks' : 'real<lower=0, upper=H[L]> ranks[N];'
         }
 
@@ -129,7 +129,7 @@ class CIGAM:
             log_degree = np.log(1 + degrees)
             log_degree = -np.sort(-log_degree)
             plt.plot(log_rank, log_degree, linewidth=0, marker='x', label='Realized Degree')
-            _, (px, py) = segments_fit(X=log_rank, Y=log_degree, count=len(self.c))
+            _, (px, py) = segments_fit(log_rank, Y=log_degree, count=len(self.c))
             plt.plot(px, py, marker='o', linewidth=3, label='Piecewise Linear Fit')
 
             plt.xlabel('Node Rank by $h(u)$ (log)')
@@ -176,24 +176,10 @@ class CIGAM:
 
         model_name = '{}_given_{}{}'.format('_'.join(params_keys), '_'.join(data_keys), '_constrained' if self.constrained else '')
 
+        with open(model_name + '.stan', 'w+') as f:
+            f.write(model_code)
 
-        if load:
-            if os.path.isfile('{}.pickle'.format(model_name)):
-                with open('{}.pickle'.format(model_name), 'rb') as f:
-                    stan_model = pickle.load(f)
-                return stan_model
-            else:
-                stan_model = pystan.StanModel(model_code=model_code, model_name=model_name)
-        else:
-            stan_model = pystan.StanModel(model_code=model_code, model_name=model_name)
-
-        if dump:
-            with open('{}.pickle'.format(model_name), 'wb+') as f:
-                pickle.dump(stan_model, f, protocol=-1)
-            with open('{}.stan'.format(model_name), 'w+') as f:
-                f.write(model_code)
-
-        return stan_model
+        return model_code, model_name
 
     def continuous_tree_sample(self, N):
         u = np.random.uniform(size=N)
@@ -201,8 +187,10 @@ class CIGAM:
         return y
 
     def stan_model_sample(self, known, model_data, dump=True, load=True):
-        stan_model = self.stan_model(known, dump=dump, load=load)
-        fit = stan_model.sampling(data=model_data, iter=2000, chains=10, n_jobs=10, control=dict(adapt_delta=0.9))
+        model_code, model_name  = self.stan_model(known, dump=dump, load=load)
+        stan_model = stan.build(program_code=model_code, data=model_data)
+
+        fit = stan_model.sample(num_samples=2000, num_chains=10)
 
         return fit
 
@@ -290,7 +278,7 @@ class CIGAM:
     def visualize_posterior(self, fit, params=None, method='hist', outfile='posterior.png'):
 
         if params is None:
-            params = list(fit.extract().keys())
+            params = list(fit.keys())
 
         if method == 'plot':
             assert(len(params) == 1)
@@ -348,7 +336,7 @@ class CIGAM:
 
         degrees_init = 1 + np.array([G.degree(u) for u in range(len(G))])
 
-        ranks = fit.extract()['ranks']
+        ranks = fit['ranks']
         degrees = np.zeros_like(ranks)
 
         A = nx.to_numpy_array(G)
@@ -425,7 +413,7 @@ class CIGAM:
             e_fit = self.stan_model_sample(self.latent_posterior(), e_data)
 
             # For every node let its rank be the mean of the corresponding sampled parameter heights[i]
-            e_ranks = e_fit.extract()['ranks'].mean(0)
+            e_ranks = e_fit['ranks'].mean(0)
 
             # (Bayesian) M-Step: Sample from p(b, c | G, heights_avg)
             m_data = {
@@ -442,10 +430,10 @@ class CIGAM:
 
             # Let the parameters of the next iteration be the mean of the predicted parameters
             m_fit = self.stan_model_sample(self.params_posterior(), m_data)
-            self.lambda_ = m_fit.extract()['lambda'].mean()
-            self.b = np.exp(m_fit.extract()['lambda']).mean()
-            self.c = m_fit.extract()['c'].mean(0)
-            q_function = CIGAM.q_function(G, e_fit.extract()['ranks'], H, self.b, self.c, self.order)
+            self.lambda_ = m_fit['lambda'].mean()
+            self.b = np.exp(m_fit['lambda']).mean()
+            self.c = m_fit['c'].mean(0)
+            q_function = CIGAM.q_function(G, e_fit['ranks'], H, self.b, self.c, self.order)
 
             print('lambda = {}, c = {}, b = {}, Q = {}'.format(self.lambda_, self.c, self.b, q_function))
 
@@ -455,7 +443,6 @@ class CIGAM:
             lambda_old, c_old, b_old = self.lambda_, self.c, self.b
 
         self.lambda_, self.b, self.c = optimum[-1]
-        print('Best fit', optimum)
 
         return optimum
 
@@ -488,7 +475,7 @@ class CIGAM:
             }
 
             e_fit = self.stan_model_sample(self.latent_posterior(), e_data)
-            ranks_post = e_fit.extract()['ranks']
+            ranks_post = e_fit['ranks']
             sizes_post, neg_sizes_post, layers_post, num_layers_post = CIGAM.get_partition_sizes(G, ranks_post, self.order, self.H)
             sum_ranks_post = ranks_post.sum(1)
 
@@ -512,7 +499,6 @@ class CIGAM:
             lambda_old, c_old = self.lambda_, self.c
 
         self.lambda_, self.c = optimum[-1]
-        print('Best fit', optimum)
 
         plt.figure(figsize=(10, 10))
         plt.plot(q_values)
@@ -524,7 +510,7 @@ class CIGAM:
         N = len(G)
         M = G.num_simplices(separate=True)
         binomial_coeffs = binomial_coefficients(N, self.order_max) 
-        
+       
         data = {
                 'N' : len(G),
                 'K_min' : self.order_min,
@@ -542,9 +528,9 @@ class CIGAM:
             data['ranks'] = ranks
             fit = self.stan_model_sample(self.params_posterior(), data)
 
-        self.lambda_ = fit.extract()['lambda'].mean()
-        self.b = np.exp(fit.extract()['lambda']).mean()
-        self.c = fit.extract()['c'].mean(0)
+        self.lambda_ = fit['lambda'].mean()
+        self.b = np.exp(fit['lambda']).mean()
+        self.c = fit['c'].mean(0)
         self.H = H
 
         return fit
@@ -688,7 +674,7 @@ class CIGAM:
         assert(num_layers >= 1)
         self.c = np.array([1.5])
         self.H = np.array([ranks.max()])
-        model_ll = self.fit_model_given_ranks_helper(G, ranks)
+        model_ll = self.fit.odel_given_ranks_helper(G, ranks)
         model_bic = 2 * np.log(2 * len(G)) - 2 * model_ll
         opt_bic = (model_bic, model_ll, 1, copy.deepcopy(self.lambda_), copy.deepcopy(self.c))
         # print('Number of layers: {}, Model BIC: {}, lambda = {}, c = {}, H = {}'.format(1, model_bic, self.lambda_, self.c, self.H))
@@ -696,7 +682,7 @@ class CIGAM:
         for i in range(2, num_layers + 1):
             self.H = np.hstack(([self.H[0] / 2], self.H))
             self.c = np.hstack(([self.c[0]], self.c))
-            model_ll = self.fit_model_given_ranks_helper(G, ranks)
+            model_ll = self.fit.odel_given_ranks_helper(G, ranks)
             model_bic = (i + 1) * np.log(G.num_simplices() + len(G)) - 2 * model_ll
         
             if model_bic <= opt_bic[0]:
@@ -747,3 +733,21 @@ class CIGAM:
         ranks[np.isnan(ranks)] = y
 
         return ranks
+
+    #def fit.odel_pymc3(self, G, ranks):
+
+    #    model = pm.Model()
+    #    edges = G.to_index(np.array)
+    #    M = G.num_simplices(separate=True) 
+
+    #    with model:
+            # Truncated exponential
+    #        TruncatedExponential = pm.Bound(pm.Exponential, lower=0, upper=self.H[-1])
+
+            # Priors 
+    #        c_rnd = pm.Pareto('c', 2, 1, shape=len(H))
+    #        lambda_rnd = pm.Gamma('lambda', alpha=2, beta=1) 
+    #        ranks_rnd = TruncatedExponential('ranks', lam=lambda_rnd, observed=ranks)
+
+            
+

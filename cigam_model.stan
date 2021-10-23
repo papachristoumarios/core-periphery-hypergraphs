@@ -3,8 +3,8 @@ model {
 	real sorted_ranks[N]; // sorted ranks
 	int layers[N];
 	int num_layers[N, L];
-	int sizes[N, L];
-	int binomial_sizes[N, L]; 
+	real sizes[N, L];
+	real binomial_sizes[N, L]; 
   int ordered_edges[max(M), K_max];
   int j;
 
@@ -29,12 +29,6 @@ model {
   
   for (k in K_min:K_max) {
     j = k - K_min + 1;
-
-    for (m in 1:M[j]) {
-      for (i in 1:K_max) {
-        ordered_edges[m, i] = -1;
-      }
-    }
   
     for (i in 1:N) {
       for (l in 1:L) {
@@ -44,7 +38,7 @@ model {
     }
 
     // TODO initialize arrays
-    ordered_edges  = order_edges(edges[j, 1:M[j], 1:K_max], ordering, M[j], k);
+    ordered_edges  = order_edges(edges[j, 1:M[j], 1:k], ordering, M[j], k);
     sizes = get_partition_sizes(ordered_edges, sorted_ranks,  layers, H, N, L, M[j], k);
     // print("Sizes");
     // print(sizes);
@@ -54,10 +48,10 @@ model {
     // print(binomial_sizes);
 
     // Sample hypergraph
-    c0 ~ pareto(0.05, 2); 
+    c0 ~ exponential(1); 
     for (i in 1:N) {
       for (l in 1:L) {
-          sizes[i, l] ~ binomial(binomial_sizes[i, l], pow(c[l], -1 - H[L] + sorted_ranks[i]));
+          sizes[i, l] ~ binomial_real(binomial_sizes[i, l], pow(c[l], -1 - H[L] + sorted_ranks[i]));
         }
     }
   }

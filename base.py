@@ -16,10 +16,9 @@ import pandas as pd
 import seaborn as sns
 import random
 import itertools
-import pystan
+import stan
 import pickle
 import multiprocessing
-
 from sklearn import linear_model
 from scipy.optimize import minimize, curve_fit
 from scipy import stats
