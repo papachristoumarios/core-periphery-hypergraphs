@@ -52,7 +52,7 @@ if __name__ == '__main__':
     H = np.linspace(0, 1, args.num_layers + 1)[1:] 
     c = 2.5 * np.ones(len(H))
     b = 3
-    cigam = CIGAM(c=c, b=b, H=H, order=args.simplex_size)
+    cigam = CIGAM(c=c, b=b, H=H, order_min=args.simplex_size, order_max=args.simplex_size)
     fit = cigam.fit_model_bayesian(G=G, ranks=ranks, H=H)
 
     # Keep mean ranks 

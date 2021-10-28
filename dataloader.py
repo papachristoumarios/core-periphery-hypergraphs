@@ -35,7 +35,9 @@ def load_dataset(name, **kwargs):
     elif name == 'coauth-MAG-KDD':
         return load_coauth_mag_kdd(simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, timestamp_min=timestamp_min, timestamp_max=timestamp_max, completed=True)
     elif name in ['congress-bills', 'contact-high-school', 'contact-primary-school', 'email-Eu', 'email-Enron']:
-        return load_hypergraph(name=name, simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, timestamp_min=timestamp_min, timestamp_max=timestamp_max)
+        return load_hypergraph(name=name, simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, timestamp_min=timestamp_min, timestamp_max=timestamp_max, load_features=False)
+    elif name in ['threads-math-sx-filtered', 'threads-stack-overflow-filtered', 'threads-ask-ubuntu-filtered']:
+        return load_hypergraph(name=name, simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, timestamp_min=timestamp_min, timestamp_max=timestamp_max, load_features=True)
     elif name == 'ghtorrent':
         return load_ghtorrent_projects(simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, timestamp_min=timestamp_min, timestamp_max=timestamp_max, completed=True)
 

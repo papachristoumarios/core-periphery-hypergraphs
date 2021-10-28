@@ -77,6 +77,12 @@ class Hypergraph:
     def degrees(self): 
         return np.array([self.degree(u) for u in self.nodes_])
 
+    def degrees_histogram(self, log=True):
+        if log:
+            return np.histogram(np.log(1 + self.degrees()), bins='auto')
+        else:
+            return np.histogram(self.degrees(), bins='auto') 
+
     def nodes(self):
         for key in self.nodes_:
             yield key
@@ -109,6 +115,14 @@ class Hypergraph:
             return num_simplices
         else:
             return len(self.simplices)
+    
+    def get_order_range(self):
+        return min(self.simplex_sizes.keys()), max(self.simplex_sizes.keys())
+
+    def get_field_range(self, field='timestamp'):
+        minimum = min([s.simplex_data.get(field, np.inf) for s in self.edges()])
+        maximum = max([s.simplex_data.get(field, -np.inf) for s in self.edges()])
+        return minimum, maximum
 
     def simplices_to_list_of_lists(self):
         for edge in self.edges():
@@ -225,19 +239,34 @@ class Hypergraph:
             return nx.convert_node_labels_to_integers(H)
 
     @staticmethod
-    def convert_node_labels_to_integers_with_field(H, field):
+    def convert_node_labels_to_integers_with_field(H, field, sort=True):
       
         H = Hypergraph.convert_node_labels_to_integers(H, mapping=None)
         values = np.zeros(len(H))
 
         for u, data in H.nodes(data=True):
             values[u] = data.get(field, np.nan)
-
-        ordering = np.argsort(-values)
+    
+        if sort:
+            ordering = np.argsort(-values)
         
-        mapping = dict([(ordering[i], i) for i in range(len(values))])
+            mapping = dict([(ordering[i], i) for i in range(len(values))])
          
-        return Hypergraph.convert_node_labels_to_integers(H, mapping=mapping), values[ordering]
+            return Hypergraph.convert_node_labels_to_integers(H, mapping=mapping), values[ordering]
+        else:
+            return H, values
+
+    @staticmethod
+    def filter_by_field(H, field, minimum, maximum):
+        H_new = Hypergraph()
+
+        for e in H.edges():
+            if e.simplex_data.get(field, -np.inf) >= minimum and e.simplex_data.get(field, np.inf) <= maximum:
+                H_new.add_simplex(e)
+        
+        # TODO copy node data
+
+        return H_new
 
     def to_index(self, dtype=np.array):
         if dtype == np.array:
