@@ -29,7 +29,6 @@ if __name__ == '__main__':
 
     for k in simplex_size_range:
         for l in layers_range:
-            # H = (args.b)**(-np.arange(l, dtype=np.float64))[::-1]
             H = np.linspace(0.1, 1, 9)
 
             c = np.linspace(args.c_start, args.c_end, len(H))
@@ -57,8 +56,5 @@ if __name__ == '__main__':
     plt.ylabel('$\\hat d$', fontsize=16)
     plt.legend(fontsize=14)
     plt.title('Normalized Degree', fontsize=16)
-    plt.savefig('foo.png')
 
-            
-
-
+    plt.savefig('normalized_degree_monte_carlo.png') 

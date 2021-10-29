@@ -362,8 +362,8 @@ def load_coauth_mag_kdd(location='/data/mp2242/coauth-MAG-KDD', simplex_min_size
         for line, year in zip(lines, years):
                 line = line.split(' ')
                 if simplex_min_size <= len(line) <= simplex_max_size and timestamp_min <= int(year) <= timestamp_max:
-                        simplex = Simplex(line)
-                        H.add_simplex(simplex)
+                    simplex = Simplex(line, simplex_data={'timestamp' : int(year)})
+                    H.add_simplex(simplex)
 
         stats = pd.read_csv(os.path.join(location, 'coauth-MAG-KDD-node-labels{}.txt'.format('-imputed' if completed else '')), sep='\t')
         # stats = normalize_df(stats, fields=['h_index', 'n_citation', 'n_pubs'])

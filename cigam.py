@@ -138,14 +138,26 @@ class CIGAM:
             plt.legend()
             plt.savefig('degree_plot.eps')
 
-    def stan_model(self, known, dump=True, load=True, method='optimized'):
+    def stan_model(self, known, dump=True, load=True, method='optimized', latent_ranks=False):
             
         with open('cigam_functions.stan') as f:
             functions_segment = f.read()
 
-        
+        with open('cigam_transformed_data.stan') as f:
+            transformed_data_segment = f.read()
+
         with open('cigam_model.stan') as f:
             model_segment = f.read()
+
+        with open('cigam_transformed_parameters.stan') as f:
+            transformed_params_segment = f.read()
+
+        if latent_ranks:
+            model_segment = 'model {\n' + transformed_data_segment + model_segment + '\n}'
+            transformed_data_segment = ''
+        else:
+            model_segment = 'model {\n' + model_segment + '\n}'
+            transformed_data_segment = 'transformed data {\n' + transformed_data_segment + '\n}'
 
         data = []
         params = []
@@ -160,19 +172,13 @@ class CIGAM:
                 params.append(self.stan_definitions[key])
                 params_keys.append(key)
 
-        transformed_params_segment = '''transformed parameters {
-            vector<lower=1>[L] c;
-            c = c0 + 1;
-        }
-        '''
-
         data_text = '\n\t'.join(data)
         params_text = '\n\t'.join(params)
 
         data_segment = 'data {\n\t' + data_text + '\n}'
         params_segment = 'parameters {\n\t' + params_text + '\n}'
 
-        model_code = '{}\n\n{}\n\n{}\n\n{}\n\n{}'.format(functions_segment, data_segment, params_segment, transformed_params_segment, model_segment)
+        model_code = '{}\n\n{}\n\n{}\n\n{}\n\n{}\n\n{}'.format(functions_segment, data_segment, transformed_data_segment, params_segment, transformed_params_segment, model_segment)
 
         model_name = '{}_given_{}{}'.format('_'.join(params_keys), '_'.join(data_keys), '_constrained' if self.constrained else '')
 
@@ -190,8 +196,8 @@ class CIGAM:
         model_code, model_name  = self.stan_model(known, dump=dump, load=load)
         stan_model = stan.build(program_code=model_code, data=model_data)
 
-        fit = stan_model.sample(num_samples=2000, num_chains=10)
-
+        fit = stan_model.sample(num_samples=2000, num_chains=4, init=[{'lambda' : 0.5} for _ in range(4)])
+    
         return fit
 
     @staticmethod
@@ -376,135 +382,6 @@ class CIGAM:
 
         plt.savefig(outfile)
 
-        # plt.figure(figsize=(10, 10))
-        # plt.imshow(A_mean)
-        # plt.xlabel('Ranking')
-        # plt.ylabel('Ranking')
-        # plt.title('Expected Adjacency Matrix wrt to Rankings')
-
-    def fit_model_bayesian_em(self, G, H, lambda_init=np.log(3.2), c_init=1.4, epochs=30):
-
-        lambda_old = lambda_init
-        b_old = np.exp(lambda_old)
-        c_old = c_init
-        N = len(G)
-        edges = G.to_index()
-        M = G.num_simplices(separate=True)
-
-        optimum = (-np.inf, (lambda_old, b_old, c_old))
-
-        binomial_coefs = binomial_coefficients(N, self.order_max)
-
-        for _ in range(epochs):
-            # E-Step: Sample from p(heights | G, b_old, c_old)
-            e_data = {
-                    'N' : N,
-                    'L' : len(H),
-                    'K_min' : self.order_min,
-                    'K_max' : self.order_max,
-                    'M' : M, 
-                    'H' : H,
-                    'edges' : edges,
-                    'binomial_coefficients' : binomial_coeffs,
-                    'lambda' : lambda_old,
-                    'c0' : c_old - 1
-            }
-
-            e_fit = self.stan_model_sample(self.latent_posterior(), e_data)
-
-            # For every node let its rank be the mean of the corresponding sampled parameter heights[i]
-            e_ranks = e_fit['ranks'].mean(0)
-
-            # (Bayesian) M-Step: Sample from p(b, c | G, heights_avg)
-            m_data = {
-                    'N' : N,
-                    'L' : len(H),
-                    'K_min' : self.order_min,
-                    'K_max' : self.order_max,
-                    'M' : M,
-                    'H' : H,
-                    'edges' : edges,
-                    'binomial_coefficients' : binomial_coeffs,
-                    'ranks' : e_ranks
-            }
-
-            # Let the parameters of the next iteration be the mean of the predicted parameters
-            m_fit = self.stan_model_sample(self.params_posterior(), m_data)
-            self.lambda_ = m_fit['lambda'].mean()
-            self.b = np.exp(m_fit['lambda']).mean()
-            self.c = m_fit['c'].mean(0)
-            q_function = CIGAM.q_function(G, e_fit['ranks'], H, self.b, self.c, self.order)
-
-            print('lambda = {}, c = {}, b = {}, Q = {}'.format(self.lambda_, self.c, self.b, q_function))
-
-            if q_function >= optimum[0]:
-                optimum = (q_function, (self.lambda_, self.b, self.c))
-
-            lambda_old, c_old, b_old = self.lambda_, self.c, self.b
-
-        self.lambda_, self.b, self.c = optimum[-1]
-
-        return optimum
-
-    def fit_model_em(self, G, H, lambda_init=np.log(3.2), c_init=[1.4], epochs=15):
-        lambda_old = lambda_init
-        c_old = np.array(c_init)
-        N = len(G)
-        edges = G.to_index()
-        M = edges.shape[0]
-
-        binomial_coefs = binomial_coefficients(N, self.order)
-        
-        optimum = (-np.inf, (lambda_old, c_old))
-
-        bounds = ((1, np.inf), (1, np.inf))
-        q_values = []
-
-        for _ in range(epochs):
-            # E-Step: Sample from p(ranks | G, lambda_old, c_old)
-            e_data = {
-                    'N' : N,
-                    'L' : len(H),
-                    'K' : self.order,
-                    'M' : M,
-                    'H' : H,
-                    'edges' : edges,
-                    'binomial_coefficients' : binomial_coeffs,
-                    'lambda' : lambda_old,
-                    'c0' : c_old - 1
-            }
-
-            e_fit = self.stan_model_sample(self.latent_posterior(), e_data)
-            ranks_post = e_fit['ranks']
-            sizes_post, neg_sizes_post, layers_post, num_layers_post = CIGAM.get_partition_sizes(G, ranks_post, self.order, self.H)
-            sum_ranks_post = ranks_post.sum(1)
-
-            # M-Step: Optimize the Q function = E_{posterior latent variables} [complete_log_likelihood]
-            res = minimize(lambda x: - CIGAM.q_function(G, ranks_post, H, x[0], x[1:], self.order, sizes_post=sizes_post, neg_sizes_post=neg_sizes_post, sum_ranks=sum_ranks_post), np.hstack(([lambda_old], c_old)), method='L-BFGS-B', bounds=bounds) 
-
-            self.lambda_ = res.x[0]
-            self.c = res.x[1:]
-
-            q_function = -res.fun
-            q_values.append(q_function)
-
-            print('lambda = {}, c = {}, b = {}, Q = {}'.format(self.lambda_, self.c, self.b, q_function))
-
-            if q_function >= optimum[0]:
-                optimum = (q_function, (self.lambda_, self.c))
-
-            if np.allclose(self.c, c_old) and np.allclose(self.lambda_, lambda_old):
-                break
-
-            lambda_old, c_old = self.lambda_, self.c
-
-        self.lambda_, self.c = optimum[-1]
-
-        plt.figure(figsize=(10, 10))
-        plt.plot(q_values)
-
-        return optimum
-
     def fit_model_bayesian(self, G, H, ranks=None):
         edges = G.to_index()
         N = len(G)
@@ -523,10 +400,10 @@ class CIGAM:
         }
 
         if ranks is None:
-            fit = self.stan_model_sample(self.params_latent_posterior(), data)
+            fit = self.stan_model_sample(self.params_latent_posterior(), data, latent_ranks=True)
         else:
             data['ranks'] = ranks
-            fit = self.stan_model_sample(self.params_posterior(), data)
+            fit = self.stan_model_sample(self.params_posterior(), data, latent_ranks=False)
 
         self.lambda_ = fit['lambda'].mean()
         self.b = np.exp(fit['lambda']).mean()
@@ -558,14 +435,14 @@ class CIGAM:
         return result
 
     @staticmethod
-    @jit(forceobj=True)
+    #@jit(forceobj=True)
     def graph_log_likelihood_jacobian(G, ranks, H, c, order_min, order_max, sizes=None, neg_sizes=None, layers=None, num_layers=None):
         if sizes is None or neg_sizes is None or layers is None or num_layers is None:
             sizes, neg_sizes, layers, num_layers = CIGAM.get_partition_sizes(G, ranks, order_min, order_max, H)
         return np.array([np.sum([
             sizes[order - order_min, u, l] * (-1 - H[-1] + ranks[u]) / (c[l]) -
             #neg_sizes[u] * (-1 - H[-1] + ranks[u]) * c[-1]**(-2 + ranks[u] - H[-1]) / (1 - c[-1]**(-1-H[-1]+ranks[u])) 
-            neg_sizes[order - order_min, u, l] / (c[l]) * (-1-H[-1] + ranks[u]) * (c[l])**(-2-H[-1] + ranks[u]) 
+            neg_sizes[order - order_min, u, l] / (c[l]) * (-1-H[-1] + ranks[u]) * (c[l])**(-2-H[-1] + ranks[u])
             for u in G.nodes() for order in range(order_min, order_max + 1)]) for l in range(len(H))])
         
     @staticmethod
@@ -587,14 +464,11 @@ class CIGAM:
         return np.hstack(([CIGAM.ranks_log_likelihood_jacobian(None if sum_ranks is not None else ranks, len(G), lambda_, H, sum_ranks)], CIGAM.graph_log_likelihood_jacobian(G, ranks, H, c, order_min, order_max, sizes=sizes, neg_sizes=neg_sizes, layers=layers, num_layers=num_layers)))
 
     @staticmethod
+    @jit(nopython=True)
     def ranks_log_likelihood(ranks, n, lambda_, H, sum_ranks=None, num_terms=2):
         if sum_ranks is None:
             sum_ranks = np.nansum(ranks)
-        if num_terms > 0:
-            # Use Taylor expansion of log(1 - x)
-            Z = np.sum(np.exp(-np.arange(1, 1 + num_terms).astype(np.float64) * lambda_ * H[-1]))
-        else:
-            Z = np.log(1 - np.exp(-lambda_ * H[-1]))
+        Z = np.sum(np.exp(-np.arange(1, 1 + num_terms).astype(np.float64) * lambda_ * H[-1]))
         result = n * np.log(lambda_) - lambda_ * sum_ranks - Z
         return result
     
@@ -608,8 +482,8 @@ class CIGAM:
     @staticmethod
     @jit(nopython=True)
     def get_layers(ranks, H):
-        layers = np.zeros(shape=ranks.shape, dtype=np.int64)
-        num_layers = np.zeros(shape=ranks.shape + (len(H),), dtype=np.int64)
+        layers = np.zeros(shape=ranks.shape, dtype=np.uint64)
+        num_layers = np.zeros(shape=ranks.shape + (len(H),), dtype=np.uint64)
     
         j = 0
    
@@ -637,10 +511,10 @@ class CIGAM:
     @staticmethod
     def get_partition_sizes(G, ranks, order_min, order_max, H):
         sizes = np.zeros(shape=(order_max - order_min + 1,) + ranks.shape + (len(H),))
-        neg_sizes = np.zeros(shape=sizes.shape, dtype=np.int64)
+        neg_sizes = np.zeros(shape=sizes.shape, dtype=np.uint64)
         binomial_coeffs = binomial_coefficients(len(G), order_max - 1)
-        layers = np.zeros(shape=ranks.shape, dtype=np.int64)
-        num_layers = np.zeros(shape=ranks.shape + (len(H),), dtype=np.int64)
+        layers = np.zeros(shape=ranks.shape, dtype=np.uint64)
+        num_layers = np.zeros(shape=ranks.shape + (len(H),), dtype=np.uint64)
 
         if len(ranks.shape) == 1:
             layers, num_layers = CIGAM.get_layers(ranks, H)
@@ -656,7 +530,7 @@ class CIGAM:
                 for i in range(num_layers.shape[0] - 1):
                     j = i + 1
                     for l in range(num_layers.shape[1]):
-                        neg_sizes[order - order_min, i, l] = binomial_coeffs[j + num_layers[i, l] - i, order - 1] - binomial_coeffs[j - i - 1, order - 1]  - sizes[order - order_min, i, l]
+                        neg_sizes[order - order_min, i, l] = binomial_coeffs[int(j + num_layers[i, l] - i), order - 1] - binomial_coeffs[int(j - i - 1), order - 1]  - sizes[order - order_min, i, l]
                         j += num_layers[i, l]
                     
         else:
@@ -698,12 +572,11 @@ class CIGAM:
         sum_ranks = ranks.sum()
         n = len(ranks)
         bounds = ((1e-4, np.inf),) 
-
         res = minimize(lambda x: - CIGAM.ranks_log_likelihood(ranks, n, x, self.H, sum_ranks), 0.1, bounds=bounds, jac=lambda x: - CIGAM.ranks_log_likelihood_jacobian(ranks, n, x, self.H, sum_ranks=sum_ranks))
         ranks_ll = - res.fun[0]
         self.lambda_ = res.x[0]
-
-        bounds = len(self.H) * ((1 + 1e-4, np.inf),)
+        print(ranks_ll)
+        bounds = len(self.H) * ((1 + 1e-4, np.exp(self.lambda_)),)
         sizes, neg_sizes, _, _ = CIGAM.get_partition_sizes(G, ranks, self.order_min, self.order_max, self.H)
         
         # res = minimize(lambda x: - CIGAM.graph_log_likelihood(G, ranks, self.H, x, self.order_min, self.order_max, sizes, neg_sizes), self.c, bounds=bounds)
@@ -733,21 +606,3 @@ class CIGAM:
         ranks[np.isnan(ranks)] = y
 
         return ranks
-
-    #def fit.odel_pymc3(self, G, ranks):
-
-    #    model = pm.Model()
-    #    edges = G.to_index(np.array)
-    #    M = G.num_simplices(separate=True) 
-
-    #    with model:
-            # Truncated exponential
-    #        TruncatedExponential = pm.Bound(pm.Exponential, lower=0, upper=self.H[-1])
-
-            # Priors 
-    #        c_rnd = pm.Pareto('c', 2, 1, shape=len(H))
-    #        lambda_rnd = pm.Gamma('lambda', alpha=2, beta=1) 
-    #        ranks_rnd = TruncatedExponential('ranks', lam=lambda_rnd, observed=ranks)
-
-            
-

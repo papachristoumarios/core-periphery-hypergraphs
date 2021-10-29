@@ -5,24 +5,25 @@ from hypergraph import *
 
 class LogisticTH:
 
-    def __init__(self, alpha=10, order=2):
+    def __init__(self, alpha=10, order_min=2, order_max=2):
         self.alpha = alpha
-        self.order = order
+        self.order_min = order_min
+        self.order_max = order_max
 
     def sample(self, n):
         G = Hypergraph()
         ranks = n - (1 + np.arange(n))
 
-        for edge in itertools.combinations(range(n), self.order):
-            edge = np.array(edge)
-            p_edge = sigmoid(generalized_mean(ranks[edge], self.alpha) / n)
-            if np.random.unifomr() <= p_edge:
-                G.add_simplex_from_nodes(nodes=edge.tolist(), simplex_data = {})
-
+        for order in range(self.order_min, self.order_max + 1):
+            for edge in itertools.combinations(range(n), order):
+                edge = np.array(edge)
+                p_edge = sigmoid(generalized_mean(ranks[edge], self.alpha) / n)
+                if np.random.unifomr() <= p_edge:
+                    G.add_simplex_from_nodes(nodes=edge.tolist(), simplex_data = {})
         return G, ranks
     
     @staticmethod
-    def graph_log_likelihood(edge_set, n, order, ranks, alpha, negative_samples):
+    def graph_log_likelihood(edge_set, n, M, order_min, order_max, ranks, alpha, negative_samples):
 
         log_likelihood_pos = 0
         log_likelihood_neg = 0
@@ -35,6 +36,7 @@ class LogisticTH:
         
         for _ in range(negative_samples):
             while True:
+                order = np.random.choice(np.arange(order_min, order_max + 1), p =M/M.sum())
                 neg_edge = tuple(sorted(sample_combination(n=n, k=order)))
                 if neg_edge not in edge_set and neg_edge not in neg_edge_set:
                     break
@@ -100,24 +102,30 @@ class LogisticTH:
         assert(p > max(1, self.alpha))
         q = p / (p - 1)
         x = np.random.uniform(size=n)
-        order_factorial = scipy.special.factorial(self.order)
-        edges = G.to_index()
+        order_factorial = np.zeros(self.order_max + 2)
+        order_factorial[1] = 1
+        for i in range(2, self.order_max + 1):
+            order_factorial[i] = order_factorial[i - 1] * i
 
-        def fixed_point(x, edges, order_factorial):
+        edges = G.to_index()
+        M = G.num_simplices(separate=True)
+
+        def fixed_point(x, edges, order_factorial, M, order_min, order_max, alpha):
             y = np.zeros_like(x) 
 
-            for m in range(edges.shape[0]):
-                generalized_mn = generalized_mean(x[edges[m]], self.alpha)
-                y[edges] += order_factorial / generalized_mn**(self.alpha - 1)
+            for i, k in enumerate(range(order_min, order_max + 1)):
+                for m in range(M[i]):
+                    generalized_mn = generalized_mean(x[edges[i, m, :k]], alpha)
+                    y[edges] += order_factorial[k] / generalized_mn**(alpha - 1)
 
-            y *= np.abs(x)**(self.alpha - 2) * x
+            y *= np.abs(x)**(alpha - 2) * x
 
             return y
 
         x_prev = x
 
         while True:
-            y = fixed_point(x, edges, order_factorial)
+            y = fixed_point(x, edges, order_factorial, M, self.order_min, self.order_max, self.alpha)
             x = np.linalg.norm(y, q)**(1 - q) * np.abs(y)**(q - 2) * y
             if np.allclose(x, x_prev, rtol=1e-3):
                 break
@@ -129,19 +137,18 @@ class LogisticTH:
 
         x = normalize(x)
 
-        ll = LogisticTH.graph_log_likelihood(G.to_index(set), len(G), self.order, ranks, self.alpha, negative_samples)
-
+        ll = LogisticTH.graph_log_likelihood(G.to_index(set), len(G), M, self.order_min, self.order_max, ranks, self.alpha, negative_samples)
+        
+        print(ll) 
         return ll, x, ranks
 
 if __name__ == '__main__':
-    # G, labels = load_hypergraph(name='contact-primary-school', simplex_min_size=3, simplex_max_size=3, timestamp_min=31220, timestamp_max=31220 + 500)
-    G = load_world_trade()
+    G, labels = load_hypergraph(name='contact-primary-school', simplex_min_size=3, simplex_max_size=3, timestamp_min=31220, timestamp_max=31220 + 500, load_features=False)
     G = Hypergraph.convert_node_labels_to_integers(G)
-    G = G.deduplicate()
     
-    logistic_th = LogisticTH(order=2)
+    logistic_th = LogisticTH(order_min=3, order_max=3)
 
-    x, ranks = logistic_th.fit(G, p = 20)
+    x, ranks = logistic_th.fit(G, p = 20, negative_samples=len(G) // 2)
     print(x)
     print(LogisticTH.graph_log_likelihood(G.to_index(set), len(G), 3, ranks, 10, len(G) // 2))
     plt.figure(figsize=(10, 10))

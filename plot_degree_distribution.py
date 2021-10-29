@@ -9,7 +9,6 @@ def get_argparser():
     parser.add_argument('--num_layers', default=6, type=int)
     parser.add_argument('--layers_step', default=2, type=int)
     parser.add_argument('-n', default=1000, type=int)
-
     return parser.parse_args()
 
 if __name__ == '__main__':
@@ -20,9 +19,13 @@ if __name__ == '__main__':
     simplex_size_range = np.arange(args.simplex_min_size, args.simplex_max_size + 1, 1)
 
     plt.figure(figsize=(10, 10))
-    plt.ylabel('(Log) Normalized Degree') 
-    plt.xlabel('(Log) Numeric Rank') 
-    plt.title('Degree Distributions')
+    plt.ylabel('(Log) Normalized Degree', fontsize=16) 
+    if args.numeric_rank:
+        plt.xlabel('(Log) Numeric Rank', fontsize=16) 
+    else:
+        plt.xlabel('(Log) Rank', fontsize=16)
+        
+    plt.title('Degree Distributions', fontsize=16)
 
     binomial_coeffs = binomial_coefficients(args.n, args.simplex_max_size).astype(np.float64)
 
@@ -33,25 +36,23 @@ if __name__ == '__main__':
         for k in simplex_size_range:
             cigam = CIGAM(c=c, H=H, b=3, order_min=k, order_max=k, constrained=True)
 
+            print(k, l)
             G, ranks = cigam.sample(N=args.n, return_ranks=True, method='naive')
-            #degrees = G.degrees()
-            #degrees = degrees / binomial_coeffs[args.n, k - 1]
-            #log_degrees = np.log(degrees + 1)
-            #log_degrees = -np.sort(-log_degrees) 
-            #log_num_ranks = np.log(1 + np.arange(len(degrees)))
+            degrees = G.degrees()
+            degrees = degrees / binomial_coeffs[args.n, k - 1]
+            log_degrees = np.log(degrees + 1)
+            if args.numeric_rank:
+                log_degrees = -np.sort(-log_degrees) 
+                log_num_ranks = np.log(1 + np.arange(len(degrees)))
 
-            #_, (px, py) = segments_fit(log_num_ranks, log_degrees, count=l)
-            
-            #plt.plot(log_num_ranks, log_degrees, linewidth=0, marker='x', label='k = {}, L = {} (Sample)'.format(k, l))
-            #plt.plot(px, py, linewidth=4, marker='o', label='k = {}, L = {} (Fit)'.format(k, l))
-            freqs, bins = G.degrees_histogram(log=False)
-            
-            bins = np.array([(bins[i] + bins[i + 1]) / 2 for i in range(len(bins) - 1)])
-            
-            plt.plot(bins, freqs, marker='o')
+                error, (px, py) = segments_fit(log_num_ranks, log_degrees, count=l)        
+                plt.plot(log_num_ranks, log_degrees, linewidth=0, marker='x', label='k = {}, L = {} (Sample)'.format(k, l))
+            else:
+                log_ranks = np.log(ranks)
+                error, (px, py) = segments_fit(log_ranks, log_degrees, count=l)
+                plt.plot(log_ranks, log_degrees, linewidth=0, marker='x', label='k = {}, L = {} (Sample)'.format(k, l))
 
-    plt.yscale('log') 
-    plt.xscale('log')
-    
-    plt.legend()
+            plt.plot(px, py, linewidth=4, marker='o', label='k = {}, L = {} (Fit), log(error) = {}'.format(k, l, round(np.log(error), 1)))
+
+    plt.legend(fontsize=14)
     savefig('degree_distributions_{}_{}_{}_{}'.format(args.simplex_min_size, args.simplex_max_size, args.num_layers, args.layers_step))

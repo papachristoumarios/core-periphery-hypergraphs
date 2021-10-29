@@ -69,27 +69,22 @@ def binomial_coefficients(n, k):
         return C
 
 def stanfit_to_dataframe(fit, params=None):
-    data = fit
-    result = {}
-    if params is None:
-        params = data.keys()
+    df = fit.to_frame()
 
-    for key in params:
-        val = data[key]
-        if len(val.shape) == 1:
-            result[key] = val
-        else:
-            for i in range(val.shape[-1]):
-                result['{}[{}]'.format(key, i)] = val[:, i]
-    return pd.DataFrame.from_dict(data=result)
+    if params:
+        temp = []
+        for p in params:
+            for c in df.columns:
+                if c.startswith(p + '.') or c.startswith(p):
+                    temp.append(c)
 
+        df = df[temp]
+
+    return df
+
+@jit(nopython=True)
 def generalized_mean(x, p):
-    if np.isinf(p):
-        return np.max(x)
-    elif np.isinf(-p):
-        return np.min(x)
-    else:
-        return np.linalg.norm(x) / len(x)**(1 / p)
+    return np.linalg.norm(x.astype(np.float64)) / len(x)**(1 / p)
 
 @jit(nopython=True)
 def sigmoid(x):
