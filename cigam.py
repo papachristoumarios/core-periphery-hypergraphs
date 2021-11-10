@@ -192,8 +192,8 @@ class CIGAM:
         y = np.log(u * (self.b**self.H[-1] - 1) + 1) / np.log(self.b)
         return y
 
-    def stan_model_sample(self, known, model_data, dump=True, load=True):
-        model_code, model_name  = self.stan_model(known, dump=dump, load=load)
+    def stan_model_sample(self, known, model_data, dump=True, load=True, latent_ranks=False):
+        model_code, model_name  = self.stan_model(known, dump=dump, load=load, latent_ranks=latent_ranks)
         stan_model = stan.build(program_code=model_code, data=model_data)
 
         fit = stan_model.sample(num_samples=2000, num_chains=4, init=[{'lambda' : 0.5} for _ in range(4)])
@@ -211,24 +211,21 @@ class CIGAM:
             log_num_ranks = ranks
         log_err = []
         num_layers = []
+        breakpoints = []
 
         for l in range(1, layers_max + 1):
-            err, (px, py) = segments_fit(log_num_ranks, log_degrees, count=l)
-            if np.isnan(err):
+            try:
+                err, (px, py) = segments_fit(log_num_ranks, log_degrees, count=l)
+                if np.isnan(err):
+                    continue
+            except:
                 continue
             log_err.append(np.log(err))
             num_layers.append(l)
+            breakpoints.append(px)
         log_err = np.array(log_err)
-        l_opt = num_layers[np.argmin(log_err)]
-        _, (px, py) = segments_fit(log_num_ranks, log_degrees, count=l_opt)
-        
-        if ranks is None: 
-            exp_px = np.exp(px)
-            H = exp_px[1:] / exp_px.max()
-        else:
-            H = (px[1:] - px.min()) / (px.max() - px.min())
 
-        return l_opt, H
+        return num_layers, log_err, breakpoints
 
     def params_posterior(self):
         known = {
@@ -606,3 +603,78 @@ class CIGAM:
         ranks[np.isnan(ranks)] = y
 
         return ranks
+    
+    def fit_model_given_ranks_torch(self, G, features, learnable_ranks=False):
+        
+        model = CIGAMTorchModel(order_min=self.order_min, order_max=self.order_max, H=self.H, learnable_ranks=learnable_ranks, feature_dims=features.shape[-1]).cuda()
+
+        if learnable_ranks:
+            raise Exception()
+        else:
+            ranks = features
+            sizes, neg_sizes, _, _ = CIGAM.get_partition_sizes(G, ranks, self.order_min, self.order_max, self.H)
+            sizes = torch.from_numpy(sizes.astype(np.float64)).cuda()
+            neg_sizes = torch.from_numpy(neg_sizes.astype(np.float64)).cuda()
+            ranks = torch.from_numpy(ranks).cuda()
+
+        optimizer = torch.optim.SGD(model.parameters(), lr=1e-4)
+        losses = []
+
+        pbar = tqdm(range(1000))
+
+        for _ in range(1000):
+            y_pred, ranks = model(ranks)
+            
+            loss = - torch.sum(sizes.sum(0) * torch.log(y_pred) + neg_sizes.sum(0) * torch.log(1 - y_pred))
+            loss.backward()
+
+            optimizer.step()
+            optimizer.zero_grad()
+            losses.append(-loss.item())
+            
+            pbar.set_description('Loss: {}'.format(losses[-1]))
+            pbar.update()
+
+        pbar.close()
+        plt.figure()
+        plt.plot(losses)
+        plt.savefig('loss.png')
+
+        self.c = model.c.detach().cpu().numpy()
+
+
+class CIGAMTorchModel(nn.Module):
+
+    def __init__(self, order_min, order_max, H, learnable_ranks=False, feature_dims=1):
+        super().__init__()
+
+        self.order_min = order_min
+        self.order_max = order_max
+        self.H = H
+        self.num_layers = len(H)
+        # self.learnable_ranks = learnable_ranks
+        # self.feature_dims = feature_dims 
+
+        self.c = nn.Parameter(1.5 * torch.ones(self.num_layers), requires_grad=True)
+
+        #if self.learnable_ranks:
+        #    self.ranks_nn = nn.Sequential(
+        #        nn.Linear(self.feature_dims, 1),
+        #        nn.Sigmoid()
+        #    )
+
+    def forward(self, features):
+
+        # if self.learnable_ranks:
+        #    ranks = self.ranks_nn(features)
+        #else:
+        ranks = features
+    
+        n = features.size(dim=0)    
+
+        y_pred = torch.empty(n, self.num_layers).cuda()
+
+        for i in range(n):
+            y_pred[i, :] = torch.pow(self.c, -1 - self.H[-1] + ranks[i])
+    
+        return y_pred, ranks

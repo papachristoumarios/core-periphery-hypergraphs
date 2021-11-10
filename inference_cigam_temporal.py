@@ -64,7 +64,7 @@ if __name__ == '__main__':
     fits = []
     Hs = []
     for timestamp in timestamps:
-        G, stats = load_coauth_mag_kdd(simplex_min_size=args.order_min, simplex_max_size=args.order_max, timestamp_min=timestamp, timestamp_max=timestamp + args.window)
+        G, _ = load_dataset(args.name, timestamp_min=args.timestamp_min, timestamp_max=args.timestamp_max)
 
         if len(G) == 0:
             continue

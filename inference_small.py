@@ -3,14 +3,20 @@ from cigam import *
 from dataloader import *
 
 b = 3
-H = [0.5, 1]
+H = [0.25, 0.5, 1]
 c = np.linspace(1.5, 2.5, len(H))
-cigam = CIGAM(constrained=False, H=H, order_min=2, order_max=10, c=c, b=b)
+cigam = CIGAM(constrained=False, H=H, order_min=2, order_max=2, c=c, b=b)
 G, ranks = cigam.sample(100, return_ranks=True, method='naive')
 
-fit = cigam.fit_model_bayesian(G, H, ranks=ranks)
+cigam.fit_model_given_ranks_torch(G, features=ranks)
 
-cigam.visualize_posterior(fit, params=['lambda', 'c'], method='hist', outfile='posterior_fast')
+
+exit()
+
+
+# fit = cigam.fit_model_bayesian(G, H, ranks=ranks)
+
+# cigam.visualize_posterior(fit, params=['lambda', 'c'], method='hist', outfile='posterior_fast')
 
 # cigam.visualize_degree_plot(G.clique_decomposition(), fit) 
 # cigam.visualize_degree_plot(G, fit)
