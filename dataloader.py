@@ -12,35 +12,40 @@ def load_dataset(name, **kwargs):
     timestamp_max = kwargs.get('timestamp_max', np.inf)
 
     if name == 'world-trade':
-        return load_world_trade()
+        G, labels = load_world_trade()
     elif name == 'polblogs':
-        return load_polblogs()
+        G, labels =  load_polblogs()
     elif name == 'ca-netscience':
-        return load_ca_netscience()
+        G, labels = load_ca_netscience()
     elif name in  ['cs-faculty', 'business-faculty', 'history-faculty']:
         if name == 'cs-faculty':
-            return load_faculty(location='/data/mp2242/faculty/ComputerScience_edgelist.txt')
+            G, labels = load_faculty(location='/data/mp2242/faculty/ComputerScience_edgelist.txt')
         elif name == 'history-faculty':
-            return load_faculty(location='/data/mp2242/faculty/History_edgelist.txt')
+            G, labels = load_faculty(location='/data/mp2242/faculty/History_edgelist.txt')
         elif name == 'business-faculty':
-            return load_faculty(location='/data/mp2242/faculty/Business_edgelist.txt')
+            G, labels = load_faculty(location='/data/mp2242/faculty/Business_edgelist.txt')
     elif name == 'celegans':
-        return load_celegans()
+        G, labels = load_celegans()
     elif name == 'open-airlines':
-        return load_open_airlines()
+        G, labels = load_open_airlines()
     elif name == 'pvc-Enron':
-        return load_pvc_Enron()
+        G, labels = load_pvc_Enron()
     elif name == 'pvc-text-Reality':
-        return load_pvc_text_Reality()
+        G, labels = load_pvc_text_Reality()
     elif name == 'coauth-MAG-KDD':
-        return load_coauth_mag_kdd(simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, timestamp_min=timestamp_min, timestamp_max=timestamp_max, completed=True)
+        G, labels = load_coauth_mag_kdd(simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, timestamp_min=timestamp_min, timestamp_max=timestamp_max, completed=True)
     elif name in ['congress-bills', 'contact-high-school', 'contact-primary-school', 'email-Eu', 'email-Enron']:
-        return load_hypergraph(name=name, simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, timestamp_min=timestamp_min, timestamp_max=timestamp_max, load_features=False)
+        G, labels = load_hypergraph(name=name, simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, timestamp_min=timestamp_min, timestamp_max=timestamp_max, load_features=False)
     elif name in ['threads-math-sx-filtered', 'threads-stack-overflow-filtered', 'threads-ask-ubuntu-filtered']:
-        return load_hypergraph(name=name, simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, timestamp_min=timestamp_min, timestamp_max=timestamp_max, load_features=True)
+        G, labels = load_hypergraph(name=name, simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, timestamp_min=timestamp_min, timestamp_max=timestamp_max, load_features=True)
     elif name == 'ghtorrent':
-        return load_ghtorrent_projects(simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, timestamp_min=timestamp_min, timestamp_max=timestamp_max, completed=True)
+        G, labels = load_ghtorrent_projects(simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, num_followers_min=kwargs.get('num_followers_min', 100))
+    else:
+        G, labels = load_hypergraph(name=name, simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, timestamp_min=timestamp_min, timestamp_max=timestamp_max, load_features=True)
+    
+    G = G.deduplicate()
 
+    return G, labels
 
 def load_world_trade(location='/data/mp2242/world-trade/world-trade.csv', relabel=True):
     df = pd.read_csv(location)
@@ -260,19 +265,25 @@ def load_ca_netscience(location='/data/mp2242/ca-netscience/ca-netscience.mtx', 
 
     return Hypergraph.graph_to_hypergraph(G), labels
 
-def load_ghtorrent_projects(location='/data/mp2242/ghtorrent-projects-hypergraph', simplex_min_size=2, simplex_max_size=2, relabel=True):
+def load_ghtorrent_projects(location='/data/mp2242/ghtorrent-projects-hypergraph', simplex_min_size=2, simplex_max_size=2, relabel=True, num_followers_min=100):
     df = pd.read_csv(os.path.join(location, 'project_members.txt'), sep='\t')
     df = df[(df.simplex_size >= simplex_min_size) & (df.simplex_size <= simplex_max_size)]
 
+    num_followers = pd.read_csv(os.path.join(location, 'num_followers.txt'), sep='\t')
+    num_followers['log_num_followers'] = np.log(num_followers['num_followers'])
+    
     H = Hypergraph()
 
     for i, row in df.iterrows():
-            simplex = Simplex([int(x) for x in row['simplex'].split(',')], simplex_data={'timestamp' :row['created_at']})
-            H.add_simplex(simplex)
+            temp = [int(x) for x in row['simplex'].split(',')]
+            try:
+                if all([num_followers[num_followers['user_id'] == x].iloc[0]['num_followers'] >= num_followers_min for x in temp]):
+                    simplex = Simplex(temp, simplex_data={'timestamp' :row['created_at']})
+                    H.add_simplex(simplex)
+            except:
+                continue
 
-    num_followers = pd.read_csv(os.path.join(location, 'num_followers.txt'), sep='\t')
     num_followers = num_followers[num_followers['user_id'].isin(list(H.nodes()))]
-    num_followers['log_num_followers'] = np.log(num_followers['num_followers'])
 
     for i, row in num_followers.iterrows():
         H.set_attribute(row['user_id'], 'log_num_followers', row['log_num_followers'])

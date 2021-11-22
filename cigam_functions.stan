@@ -15,7 +15,7 @@ functions {
     return ordered_edges;
   }
 
-	int[] get_layers(real[] ranks_vector, real[] thresholds, int N_size, int L_size) {
+	int[] get_layers(vector ranks_vector, real[] thresholds, int N_size, int L_size) {
 		int layers[N_size];
 		int j = 1;
 
@@ -65,8 +65,8 @@ functions {
 	}
 
 
-	real[,] get_partition_sizes(int[,] ordered_edges_vector, real[] ranks_vector, int[] layers_vector, real[] H_vector, int N_size, int L_size, int M_size, int K_size) {
-		real sizes[N_size, L_size];
+	matrix get_partition_sizes(int[,] ordered_edges_vector, vector ranks_vector, int[] layers_vector, real[] H_vector, int N_size, int L_size, int M_size, int K_size) {
+		matrix[N_size, L_size] sizes;
 		int j;
 		real min_value;
 		real max_value;
@@ -107,8 +107,8 @@ functions {
 		return sizes;
 	}
 
-	real[,] get_binomial_sizes(int[,] num_layers_vector, real[,] binomial_coefficients_vector, int N_size, int L_size, int K_size) {
-		real binomial_sizes[N_size, L_size];
+  matrix get_binomial_sizes(int[,] num_layers_vector, matrix binomial_coefficients_vector, int N_size, int L_size, int K_size) {
+		matrix[N_size, L_size] binomial_sizes;
 		int j;
 
 		for (i in 1:N_size) {

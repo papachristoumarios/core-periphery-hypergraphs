@@ -3,7 +3,7 @@ from utils import *
 
 class CIGAM:
 
-    def __init__(self, c=[1.5], b=3, H=[1], order_min=2, order_max=2, constrained=False):
+    def __init__(self, c=[1.5], b=3, H=[1], order_min=2, order_max=2, constrained=False, alpha_c=0, alpha_lambda=1, beta_lambda=0):
 
         if isinstance(c, float):
             self.c = np.array([c])
@@ -24,6 +24,11 @@ class CIGAM:
 
         self.constrained = constrained
 
+        # Prior hyperparams
+        self.alpha_c = alpha_c
+        self.alpha_lambda = alpha_lambda
+        self.beta_lambda = beta_lambda
+
         # Hypergraph Order
         self.order_min = order_min
         self.order_max = order_max
@@ -35,6 +40,9 @@ class CIGAM:
         self.num_layers = len(self.c)
 
         self.stan_definitions = {
+                'alpha_c' : 'real alpha_c;',
+                'alpha_lambda' : 'real alpha_lambda;',
+                'beta_lambda' : 'real beta_lambda;',
                 'N' : 'int N;',
                 'K_min' : 'int K_min;',
                 'K_max' : 'int K_max;',
@@ -45,8 +53,8 @@ class CIGAM:
                 'lambda' : 'real<lower=0.001> lambda;',
                 'c_0' : 'real<lower=0> c[L];',
                 'edges' : 'int edges[K_max - K_min + 1, max(M), K_max];',
-                'binomial_coefficients' : 'real binomial_coefficients[N + 1, K_max + 1];',
-                'ranks' : 'real<lower=0, upper=H[L]> ranks[N];'
+                'binomial_coefficients' : 'matrix[N + 1, K_max + 1] binomial_coefficients;',
+                'ranks' : 'vector<lower=0, upper=H[L]>[N] ranks;'
         }
 
         if self.constrained:
@@ -149,13 +157,19 @@ class CIGAM:
         with open('cigam_model.stan') as f:
             model_segment = f.read()
 
+        with open('cigam_sample_truncated_ranks.stan') as f:
+            sample_ranks_segment = f.read()
+
         with open('cigam_transformed_parameters.stan') as f:
             transformed_params_segment = f.read()
 
+
         if latent_ranks:
+            transformed_data_segment = transformed_data_segment.replace('// [SAMPLE RANKS]', sample_ranks_segment)
             model_segment = 'model {\n' + transformed_data_segment + model_segment + '\n}'
             transformed_data_segment = ''
         else:
+            model_segment = model_segment.replace('// [SAMPLE RANKS]', sample_ranks_segment)
             model_segment = 'model {\n' + model_segment + '\n}'
             transformed_data_segment = 'transformed data {\n' + transformed_data_segment + '\n}'
 
@@ -200,35 +214,72 @@ class CIGAM:
     
         return fit
 
-    @staticmethod
-    def find_hyperparameters(G, eps, ranks=None, layers_max=10):
+    def find_number_of_layers(self, G, layers_max=10):
         degrees = G.degrees()
         log_degrees = np.log(1 + degrees) 
         log_degrees = - np.sort(- log_degrees)
-        if ranks is None:
-            log_num_ranks = np.log(1 + np.arange(len(G)))
-        else:
-            log_num_ranks = ranks
+        log_num_ranks = np.log(1 + np.arange(0, len(log_degrees)))
+
         log_err = []
         num_layers = []
         breakpoints = []
 
         for l in range(1, layers_max + 1):
-            try:
-                err, (px, py) = segments_fit(log_num_ranks, log_degrees, count=l)
-                if np.isnan(err):
-                    continue
-            except:
-                continue
-            log_err.append(np.log(err))
-            num_layers.append(l)
-            breakpoints.append(px)
-        log_err = np.array(log_err)
+            err, (px, py) = segments_fit(log_num_ranks, log_degrees, count=l)
+            if not np.isnan(err):
+                print(err) 
+                log_err.append(np.log(err))
+                num_layers.append(l)
+                breakpoints.append(px)
 
-        return num_layers, log_err, breakpoints
+        print(log_err, num_layers)
+        plt.figure()
+        plt.plot(num_layers, log_err)
+        plt.savefig('elbow.png') 
+
+        argmax = -1
+        maximum = -1
+
+        for i in range(1, len(log_err) - 1):
+            if (log_err[i] - log_err[i - 1]) / (log_err[i + 1] - log_err[i]) >= maximum:
+                argmax = i
+                maximum = (log_err[i] - log_err[i - 1]) / (log_err[i + 1] - log_err[i])
+
+        print('Best number of layers', num_layers[argmax])
+
+        return num_layers[argmax], log_err, num_layers, breakpoints
+
+    def find_hyperparameters(self, G, features, learnable_ranks=False, layers_max=10, step=0.2, bayesian=True):
+
+        l, _, _, _ = self.find_number_of_layers(G, layers_max=layers_max)
+
+        h_space = np.arange(0, 1, step)
+
+        argmax = - 1
+        maximum = - sys.maxsize
+
+        for h in itertools.product(h_space, repeat=l-1):
+            h = list(h)
+            if h == sorted(h):
+                print(h + [1])
+                if bayesian and not learnable_ranks:
+                    fit = self.fit_model_bayesian(G, H=np.array(h + [1.0]), ranks=features)
+                    ll = fit['lp__'].max()
+                else:   
+                    ll = self.fit_model_given_ranks_torch(G, H=np.array(h + [1.0]),  features=features, learnable_ranks=learnable_ranks)
+                if ll >= maximum:
+                    maximum = ll
+                    argmax = np.array(h + [1.0])
+
+        self.H = argmax
+
+        return argmax
 
     def params_posterior(self):
         known = {
+                'alpha_c': True,
+                'alpha_lambda': True,
+                'beta_lambda' : True,
                 'N' : True,
                 'L' : True,
                 'K_min' : True,
@@ -246,6 +297,9 @@ class CIGAM:
 
     def latent_posterior(self):
         known = {
+                'alpha_c': True,
+                'alpha_lambda': True,
+                'beta_lambda' : True,
                 'N' : True,
                 'L' : True,
                 'K_min' : True,
@@ -263,6 +317,9 @@ class CIGAM:
 
     def params_latent_posterior(self):
         known = {
+                'alpha_c': True,
+                'alpha_lambda': True,
+                'beta_lambda' : True,
                 'N' : True,
                 'L' : True,
                 'K_min' : True,
@@ -386,6 +443,9 @@ class CIGAM:
         binomial_coeffs = binomial_coefficients(N, self.order_max) 
        
         data = {
+                'alpha_c' : self.alpha_c,
+                'alpha_lambda' : self.alpha_lambda,
+                'beta_lambda' : self.beta_lambda,
                 'N' : len(G),
                 'K_min' : self.order_min,
                 'K_max' : self.order_max,
@@ -403,7 +463,8 @@ class CIGAM:
             fit = self.stan_model_sample(self.params_posterior(), data, latent_ranks=False)
 
         self.lambda_ = fit['lambda'].mean()
-        self.b = np.exp(fit['lambda']).mean()
+        
+        # self.b = np.exp(fit['lambda']).mean()
         self.c = fit['c'].mean(0)
         self.H = H
 
@@ -604,77 +665,145 @@ class CIGAM:
 
         return ranks
     
-    def fit_model_given_ranks_torch(self, G, features, learnable_ranks=False):
+    def fit_model_given_ranks_torch(self, G, H, features, learnable_ranks=False, num_epochs=50):
         
-        model = CIGAMTorchModel(order_min=self.order_min, order_max=self.order_max, H=self.H, learnable_ranks=learnable_ranks, feature_dims=features.shape[-1]).cuda()
+        if len(features.shape) == 1:
+            features = features.reshape(features.shape[0], 1)
+            features = torch.from_numpy(features.astype(np.float32)).cuda()
 
+        ranks_model = CIGAMRanksTorchModel(feature_dims=features.shape[-1], order_min=self.order_min, order_max=self.order_max, H=H, n=len(G), learnable_ranks=learnable_ranks).cuda()
+        graph_model = CIGAMGraphTorchModel(order_min=self.order_min, order_max=self.order_max, H=H).cuda()
+        
+        edges = torch.from_numpy(G.to_index()).cuda()
+        
         if learnable_ranks:
-            raise Exception()
+            optimizer = torch.optim.SGD(list(graph_model.parameters()) + list(ranks_model.parameters()), lr=1e-6)
         else:
-            ranks = features
-            sizes, neg_sizes, _, _ = CIGAM.get_partition_sizes(G, ranks, self.order_min, self.order_max, self.H)
-            sizes = torch.from_numpy(sizes.astype(np.float64)).cuda()
-            neg_sizes = torch.from_numpy(neg_sizes.astype(np.float64)).cuda()
-            ranks = torch.from_numpy(ranks).cuda()
+            optimizer = torch.optim.SGD(graph_model.parameters(), lr=1e-6)
+        
+        log_posteriors = []
 
-        optimizer = torch.optim.SGD(model.parameters(), lr=1e-4)
-        losses = []
+        pbar = tqdm(range(num_epochs))
 
-        pbar = tqdm(range(1000))
-
-        for _ in range(1000):
-            y_pred, ranks = model(ranks)
-            
-            loss = - torch.sum(sizes.sum(0) * torch.log(y_pred) + neg_sizes.sum(0) * torch.log(1 - y_pred))
+        for i in range(num_epochs):
+            if learnable_ranks or (not learnable_ranks and i == 0):
+                ranks, sizes, neg_sizes = ranks_model(features, edges)
+                
+            y_pred = graph_model(ranks)
+            loss = - torch.sum(sizes.sum(0) * torch.log(y_pred) + neg_sizes.sum(0) * torch.log(1 - y_pred)) + graph_model.lambda_ * torch.sum(ranks) + self.alpha_c * torch.sum(graph_model.c) - (self.alpha_lambda - 1) * torch.log(graph_model.lambda_) + self.beta_lambda * graph_model.lambda_
             loss.backward()
 
             optimizer.step()
             optimizer.zero_grad()
-            losses.append(-loss.item())
+            log_posteriors.append(-loss.item())
             
-            pbar.set_description('Loss: {}'.format(losses[-1]))
+            pbar.set_description('Loss: {}'.format(log_posteriors[-1]))
             pbar.update()
 
         pbar.close()
-        plt.figure()
-        plt.plot(losses)
-        plt.savefig('loss.png')
 
-        self.c = model.c.detach().cpu().numpy()
+        self.c = graph_model.c.detach().cpu().numpy()
+        self.lamdba_ = graph_model.lambda_.detach().cpu().numpy()
+
+        return np.nanmax(log_posteriors)
 
 
-class CIGAMTorchModel(nn.Module):
+class CIGAMRanksTorchModel(nn.Module):
 
-    def __init__(self, order_min, order_max, H, learnable_ranks=False, feature_dims=1):
+    def __init__(self, feature_dims, order_min, order_max, H, n, learnable_ranks):
+        super().__init__()
+        self.feature_dims = feature_dims
+        self.learnable_ranks = learnable_ranks
+        self.ranks_nn = nn.Sequential(nn.Linear(self.feature_dims, 1), nn.Sigmoid())
+
+        self.binomial_coeffs = torch.from_numpy(binomial_coefficients(n, order_max - 1))
+        self.order_min = order_min
+        self.order_max = order_max
+        self.H = H
+
+    def forward(self, features, edges):
+        if self.learnable_ranks:
+            ranks = self.ranks_nn(features)
+        else:
+            ranks = features
+
+        sizes, neg_sizes, layers, num_layers = self.get_partition_sizes(ranks, edges)
+
+        return ranks, sizes, neg_sizes
+
+    def get_partition_sizes(self, ranks, edges):
+        sizes = torch.zeros(self.order_max - self.order_min + 1, ranks.size(0), len(self.H)).cuda()
+        neg_sizes = torch.zeros(self.order_max - self.order_min + 1, ranks.size(0), len(self.H)).cuda()
+
+        layers, num_layers = self.get_layers(ranks)
+
+        for j, order in enumerate(range(self.order_min, self.order_max + 1)):
+            for edge in edges[j]:
+                edge_index = edge[:order]
+                argmax = edge_index[torch.argmax(ranks[edge_index])]
+                argmin = layers[edge_index[torch.argmin(ranks[edge_index])]]
+                
+                sizes[order - self.order_min, int(argmax.item()), int(argmin.item())] += 1            
+
+            for order in range(self.order_min, self.order_max + 1):
+                for i in range(num_layers.size(0) - 1):
+                    j = i + 1
+                    for l in range(num_layers.size(1)):
+                        neg_sizes[order - self.order_min, i, l] = self.binomial_coeffs[int(j + num_layers[i, l] - i), order - 1] - self.binomial_coeffs[int(j - i - 1), order - 1]  - sizes[order - self.order_min, i, l]
+                        j += num_layers[i, l]
+
+        return sizes, neg_sizes, layers, num_layers
+
+    def get_layers(self, ranks):
+    
+        layers = torch.zeros(ranks.size(0)).cuda()
+        num_layers = torch.zeros(ranks.size(0), len(self.H)).long().cuda()
+        
+        j = 0
+   
+        for i in range(ranks.size(0)):
+            if self.H[-1] - ranks[i, 0].item() > self.H[j]:
+                j += 1
+            layers[i] = j 
+
+        j = 0
+
+        temp = torch.zeros(len(self.H)).long().cuda()
+
+        for l in range(len(self.H)):
+            temp[l] = torch.where(layers == l)[0].size(0)
+            
+        for i in range(ranks.size(0) - 1):
+            while temp[j].item() == 0 and j < len(self.H):
+                j += 1
+            temp[j] -= 1
+
+            num_layers[i] = torch.clone(temp)
+
+        return layers, num_layers
+
+
+class CIGAMGraphTorchModel(nn.Module):
+
+    def __init__(self, order_min, order_max, H):
         super().__init__()
 
         self.order_min = order_min
         self.order_max = order_max
         self.H = H
         self.num_layers = len(H)
-        # self.learnable_ranks = learnable_ranks
-        # self.feature_dims = feature_dims 
 
         self.c = nn.Parameter(1.5 * torch.ones(self.num_layers), requires_grad=True)
+        self.lambda_ = nn.Parameter(torch.tensor(0.5), requires_grad=True) 
 
-        #if self.learnable_ranks:
-        #    self.ranks_nn = nn.Sequential(
-        #        nn.Linear(self.feature_dims, 1),
-        #        nn.Sigmoid()
-        #    )
 
-    def forward(self, features):
+    def forward(self, ranks):
 
-        # if self.learnable_ranks:
-        #    ranks = self.ranks_nn(features)
-        #else:
-        ranks = features
-    
-        n = features.size(dim=0)    
+        n = ranks.size(dim=0)    
 
         y_pred = torch.empty(n, self.num_layers).cuda()
 
         for i in range(n):
             y_pred[i, :] = torch.pow(self.c, -1 - self.H[-1] + ranks[i])
     
-        return y_pred, ranks
+        return y_pred

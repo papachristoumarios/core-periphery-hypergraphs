@@ -8,7 +8,7 @@ def segments_fit(X, Y, count):
     seg = np.full(count - 1, (xmax - xmin) / count)
 
     px_init = np.r_[np.r_[xmin, seg].cumsum(), xmax]
-    py_init = np.array([Y[np.abs(X - x) < (xmax - xmin) * 0.01].mean() for x in px_init])
+    py_init = np.array([Y[np.abs(X - x) < (xmax - xmin) * 0.001].mean() for x in px_init])
 
     def func(p):
         seg = p[:count - 1]
@@ -54,6 +54,9 @@ def truncated_exp_inverse_cdf(q, lambda_, H):
 
     Z = np.log(1 - np.exp(-lambda_ * H[-1]))
     return - np.log(1 - q * Z) / lambda_
+
+def get_num_non_edges(n, order_min, order_max):
+    return 2**order_max - 2**(order_min - 1) 
 
 @jit(nopython=True)
 def binomial_coefficients(n, k):
