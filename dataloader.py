@@ -36,7 +36,7 @@ def load_dataset(name, **kwargs):
         G, labels = load_coauth_mag_kdd(simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, timestamp_min=timestamp_min, timestamp_max=timestamp_max, completed=True)
     elif name in ['congress-bills', 'contact-high-school', 'contact-primary-school', 'email-Eu', 'email-Enron']:
         G, labels = load_hypergraph(name=name, simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, timestamp_min=timestamp_min, timestamp_max=timestamp_max, load_features=False)
-    elif name in ['threads-math-sx-filtered', 'threads-stack-overflow-filtered', 'threads-ask-ubuntu-filtered']:
+    elif name in ['threads-math-sx-filtered', 'threads-stack-overflow-filtered', 'threads-ask-ubuntu-filtered', 'ghtorrent-members', 'ghtorrent-projects']:
         G, labels = load_hypergraph(name=name, simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, timestamp_min=timestamp_min, timestamp_max=timestamp_max, load_features=True)
     elif name == 'ghtorrent':
         G, labels = load_ghtorrent_projects(simplex_min_size=simplex_min_size, simplex_max_size=simplex_max_size, num_followers_min=kwargs.get('num_followers_min', 100))
@@ -327,8 +327,10 @@ def load_hypergraph(name='email-Enron', location='/data/mp2242', simplex_min_siz
     times = np.genfromtxt(os.path.join(location, name, '{}-times.txt'.format(name)), delimiter=',', dtype=np.int64)
     
     if load_features:
-        features = pd.read_csv(os.path.join(location, name, '{}-features.txt'.format(name)), delimiter=' ', header=None).set_index(0)
-        features = features.to_dict()[1]        
+        features = pd.read_csv(os.path.join(location, name, '{}-features-whole.txt'.format(name)), delimiter=' ', header=None).set_index(0)
+        for col in features.columns:
+            features[col] = np.log(features[col])
+        features = dict(zip(features.index, features.values))
 
     H = Hypergraph()
     j = 0
@@ -377,11 +379,12 @@ def load_coauth_mag_kdd(location='/data/mp2242/coauth-MAG-KDD', simplex_min_size
                     H.add_simplex(simplex)
 
         stats = pd.read_csv(os.path.join(location, 'coauth-MAG-KDD-node-labels{}.txt'.format('-imputed' if completed else '')), sep='\t')
-        # stats = normalize_df(stats, fields=['h_index', 'n_citation', 'n_pubs'])
-
+        stats = normalize_df(stats, fields=['h_index', 'n_citation', 'n_pubs'])
+        
         for i, row in stats.iterrows():
-                H.set_attribute(row['aminer_id'], 'h_index', row['h_index'])
-                H.set_attribute(row['aminer_id'], 'n_citation', row['n_citation'])
-                H.set_attribute(row['aminer_id'], 'n_pubs', row['n_pubs'])
+            H.set_attribute(row['aminer_id'], 'features', row.values[2:5].astype(np.float32))
+            H.set_attribute(row['aminer_id'], 'h_index', row['h_index'])
+            H.set_attribute(row['aminer_id'], 'n_citation', row['n_citation'])
+            H.set_attribute(row['aminer_id'], 'n_pubs', row['n_pubs'])
 
         return H, stats

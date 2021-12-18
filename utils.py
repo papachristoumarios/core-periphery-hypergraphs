@@ -37,13 +37,20 @@ def savefig(name, ext='png'):
 
     return fig
 
-def normalize_df(df, fields):
-        for field in fields:
-                df[field] = (df[field] - df[field].min()) / (df[field].max() - df[field].min())
-        return df
+def normalize_df(df, fields, method='minmax'):
+    for field in fields:
+        df[field] = normalize(df[field], method=method)
+    return df
 
-def normalize(x):
-    return (x - x.min()) / (x.max() - x.min())
+def normalize_array(x, method='minmax'):
+    return np.apply_along_axis(lambda u: normalize(u, method), 0, x)
+
+def normalize(x, method='minmax'):
+    if method == 'minmax':
+        return (x - x.min()) / (x.max() - x.min())
+    elif method == 'z-score':
+        return (x - x.mean()) / x.std()
+
 
 @jit(nopython=True)
 def truncated_exp_inverse_cdf(q, lambda_, H):

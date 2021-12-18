@@ -157,7 +157,7 @@ class LogisticCP:
 
         return lp, self.thetas
 
-    def fit_torch(self, G, features, negative_samples=-1, num_epochs=50):
+    def fit_torch(self, G, features, negative_samples=-1, num_epochs=50, eval_exact=True, max_patience=5, ranks_col=0, early_stopping='log-posterior'):
         # Graph 
         n = len(G)
         edge_set = G.to_index(set)
@@ -167,6 +167,7 @@ class LogisticCP:
         
         # Features and model
         feature_dim = features.shape[-1]
+        golden_ranks = features[:, ranks_col]
 
         features = torch.from_numpy(features.astype(np.float32)).cuda()
 
@@ -179,6 +180,11 @@ class LogisticCP:
         # Training loop
         pbar = tqdm(range(num_epochs))
         log_posteriors = []
+        spearmans = []
+        max_log_posterior = - sys.maxsize
+        max_spearman = - sys.maxsize
+        opt_model = None
+        patience = 0
 
         for i in range(num_epochs):
             loss = torch.tensor(0.0).cuda()
@@ -222,31 +228,35 @@ class LogisticCP:
             optimizer.zero_grad()
         
             log_posteriors.append(-loss.item())
-            pbar.set_description('Loss: {}'.format(log_posteriors[-1]))
+            spearmans.append(scipy.stats.spearmanr(golden_ranks, thetas.clone().detach().cpu().numpy()).correlation)
+            pbar.set_description('Loss: {}, Spearman: {}'.format(log_posteriors[-1], spearmans[-1]))
             pbar.update()
 
+            # Early stopping
+            if not np.isnan(log_posteriors[-1]) and max_log_posterior <= log_posteriors[-1] and early_stopping == 'log-posterior':
+                max_spearman = spearmans[-1]
+                max_spearman = spearmans[-1]
+                opt_model = copy.deepcopy(thetas_model)
+            if not np.isnan(spearmans[-1]) and max_spearman <= spearmans[-1] and early_stopping == 'spearman':
+                max_log_posterior = log_posteriors[-1]
+                max_spearman = spearmans[-1]
+                opt_model = copy.deepcopy(thetas_model)
+
+            if i > 1:
+                if (log_posteriors[-1] < log_posteriors[-2] and early_stopping == 'log-posterior') or (spearmans[-1] > spearmans[-2] and early_stopping == 'spearman'):
+                    patience += 1
+                else:
+                    patience = 0
+
+                if patience == max_patience:
+                    break
+                
         pbar.close()
 
-        thetas = thetas_model(features)
+        thetas = opt_model(features)
         self.thetas = thetas.detach().cpu().numpy()
 
-        return np.nanmax(log_posteriors), self.thetas
-
-if __name__ == '__main__':
-
-    G, _ = load_world_trade()
-    # G, _ = load_coauth_mag_kdd(simplex_min_size=3, simplex_max_size=3, year_min=1995, year_max=2000)
-    G = G.deduplicate()
-    G = Hypergraph.convert_node_labels_to_integers(G)
-
-    model = LogisticCP(order_min=3, order_max=3, thetas=np.zeros(len(G)))
-
-    print(model.fit_torch(G, np.random.randn(len(G), 3), len(G) // 2))
-    
-    plt.figure(figsize=(10, 10))
-    plt.plot(- np.sort(- model.thetas))
-    plt.savefig('thetas_temp.png')
-    
-    print(model.thetas)
-
-
+        if not eval_exact:
+            return max_log_posterior, self.thetas
+        else:
+            return LogisticCP.graph_log_likelihood(edge_set, n, M_neg, self.order_min, self.order_max, self.thetas, negative_samples=-1), self.thetas

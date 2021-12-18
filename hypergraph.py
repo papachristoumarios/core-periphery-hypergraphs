@@ -141,16 +141,29 @@ class Hypergraph:
         nx.set_node_attributes(G, self.node_data, "data")
         return G
 
-    def clique_decomposition(self):
-        G = nx.Graph()
+    def clique_decomposition(self, dtype=nx.Graph):
+        if dtype == nx.Graph:
+            G = nx.Graph()
+        else:
+            G = Hypergraph()
+
         for simplex in self.simplices:
             for i in range(len(simplex.nodes_)):
                 for j in range(i):
-                    G.add_edge(simplex.nodes_[i], simplex.nodes_[j])
+                    if dtype == nx.Graph:
+                        G.add_edge(simplex.nodes_[i], simplex.nodes_[j])
+                    else:
+                        temp = Simplex([simplex.nodes_[i], simplex.nodes_[j]], simplex_data=simplex.simplex_data)
+                        G.add_simplex(temp)
 
-        G = self.set_node_attributes_to_graph(G)
-        return G
-
+        if dtype == nx.Graph:
+            G = self.set_node_attributes_to_graph(G)
+            return G
+        else:
+            for u, data in self.nodes(data=True):
+                G[u] = copy.deepcopy(data)
+            return G
+    
     def star_decomposition(self):
         G = nx.Graph()
         for simplex in self.simplices:
@@ -239,18 +252,19 @@ class Hypergraph:
             return nx.convert_node_labels_to_integers(H)
 
     @staticmethod
-    def convert_node_labels_to_integers_with_field(H, field, sort=True):
+    def convert_node_labels_to_integers_with_field(H, field, sort=True, sort_col=0):
       
         H = Hypergraph.convert_node_labels_to_integers(H, mapping=None)
-        values = np.zeros(len(H))
+        feature_dim = len(next(H.nodes(data=True))[1][field])
+        values = np.zeros((len(H), feature_dim))
 
         for u, data in H.nodes(data=True):
-            values[u] = data.get(field, np.nan)
+            values[u] = data.get(field, np.nan * np.ones(feature_dim))
     
         if sort:
-            ordering = np.argsort(-values)
+            ordering = np.argsort(-values[:, sort_col])
         
-            mapping = dict([(ordering[i], i) for i in range(len(values))])
+            mapping = dict([(ordering[i], i) for i in range(values.shape[0])])
          
             return Hypergraph.convert_node_labels_to_integers(H, mapping=mapping), values[ordering]
         else:
@@ -302,6 +316,69 @@ class Hypergraph:
             A[m, indexed[m]] = 1
         
         return A.T
+
+    def domination_curve(self, ordering):
+
+        x_axis = np.arange(1, 1 + len(ordering)).astype(np.float32)
+        y_axis = np.zeros(len(ordering))
+        
+        S = set([])
+
+        for i, v in enumerate(ordering):
+            for p in self.pointers[v]:
+                for u in self.simplices[p].nodes_:
+                    S |= {u}
+
+            y_axis[i] = len(S)
+
+        y_axis = y_axis / y_axis.max()
+        x_axis = x_axis / x_axis.max()
+
+        return x_axis, y_axis
+
+    def connected_components(self): 
+        visited = collections.defaultdict(bool) 
+        connected_components = []
+
+        for u in self.nodes():
+            if not visited[u]:
+                q = collections.deque([u])
+                visited[u] = True
+                S = []
+    
+                while q:
+                    current = q.pop()
+                    S.append(current)
+
+                    for ptr in self.pointers[current]:
+                        for v in self.simplices[ptr].nodes_:
+                            if not visited[v]:
+                                visited[v] = True
+                                q.append(v)
+
+                connected_components.append((len(S), S))
+
+        return connected_components
+
+    def largest_connected_component(self):
+        _, LCC = max(self.connected_components(), key=lambda x: x[0])
+        return self.subhypergraph(LCC)
+
+    def subhypergraph(self, S):
+        H = Hypergraph()
+        edges = []
+
+        for u in S:
+            for ptr in self.pointers[u]:
+                edges.append(self.simplices[ptr])
+
+        for e in edges:
+            H.add_simplex(e)
+
+        for u, data in self.nodes(data=True):
+            H[u] = copy.deepcopy(data)
+
+        return H
 
 def mns(H, s):
     if isinstance(H, Hypergraph):

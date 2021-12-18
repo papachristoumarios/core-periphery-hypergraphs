@@ -35,6 +35,10 @@ import sparse
 # Headless environment for plotting
 matplotlib.use('Agg')
 
+# Seeds
+np.random.seed(0)
+torch.manual_seed(0)
+
 # Aesthetics
 LARGE_SIZE = 20
 plt.rc('axes', labelsize=LARGE_SIZE)
