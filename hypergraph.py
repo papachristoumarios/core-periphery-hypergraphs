@@ -141,15 +141,18 @@ class Hypergraph:
         nx.set_node_attributes(G, self.node_data, "data")
         return G
 
-    def clique_decomposition(self, dtype=nx.Graph):
+    def clique_decomposition(self, dtype=nx.Graph, weighted=True):
         if dtype == nx.Graph:
             G = nx.Graph()
         else:
             G = Hypergraph()
 
+        weights = collections.defaultdict(int)
+
         for simplex in self.simplices:
             for i in range(len(simplex.nodes_)):
                 for j in range(i):
+                    weights[i, j] += 1
                     if dtype == nx.Graph:
                         G.add_edge(simplex.nodes_[i], simplex.nodes_[j])
                     else:
@@ -158,10 +161,15 @@ class Hypergraph:
 
         if dtype == nx.Graph:
             G = self.set_node_attributes_to_graph(G)
+            for (u, v) in G.edges():
+                G[u][v]['weight'] = weights[i, j]
             return G
         else:
             for u, data in self.nodes(data=True):
                 G[u] = copy.deepcopy(data)
+            for i in range(G.num_simplices()):
+                G.simplices[i]['weight'] = weights[G.simplices[i].nodes_[0], G.simplices[i].nodes_[1]]
+                
             return G
     
     def star_decomposition(self):
@@ -336,6 +344,45 @@ class Hypergraph:
 
         return x_axis, y_axis
 
+    def umhs(self, N):
+        S = set([])
+        perm = np.arange(0, self.num_simplices())
+
+        for i in range(N):
+            np.random.shuffle(perm) 
+            S_temp = collections.defaultdict(bool)
+            S_temp_ordering = []
+            U = set([])
+
+            for j in perm:
+                if all([not S_temp[v] for v in self.simplices[j].nodes_]):
+                    for v in self.simplices[j].nodes_:
+                        S_temp[v] = True
+                        S_temp_ordering.append(v)
+                        U.add(v)
+                        for p in self.pointers[v]:
+                            for u in self.simplices[p].nodes_:
+                                U.add(u)
+                        if len(U) >= self.__len__():
+                            break
+
+                    if len(U) >= self.__len__():
+                        break
+
+            U = set([])
+            i_stop = -1
+            for i, v in enumerate(S_temp_ordering, 1):
+                for p in self.pointers[v]:
+                    for u in self.simplices[p].nodes_:
+                        U.add(u)
+                        if len(U) >= self.__len__():
+                            i_stop = i
+                            break
+            S_temp_ordering = set(S_temp_ordering[:i])
+            S = S | S_temp_ordering
+
+        return list(S)
+
     def connected_components(self): 
         visited = collections.defaultdict(bool) 
         connected_components = []
@@ -344,11 +391,11 @@ class Hypergraph:
             if not visited[u]:
                 q = collections.deque([u])
                 visited[u] = True
-                S = []
+                S = set([])
     
                 while q:
-                    current = q.pop()
-                    S.append(current)
+                    current = q.popleft()
+                    S.add(current)
 
                     for ptr in self.pointers[current]:
                         for v in self.simplices[ptr].nodes_:
@@ -364,13 +411,50 @@ class Hypergraph:
         _, LCC = max(self.connected_components(), key=lambda x: x[0])
         return self.subhypergraph(LCC)
 
+    def filter_degrees(self, threshold=4):
+        S = set([])
+        for u in self.nodes_:
+            if self.degree(u) >= threshold:
+                S.add(u)
+        return self.subhypergraph(S)
+
+    def k_core(self, k=2):
+        degrees = copy.deepcopy(self.degrees_)
+        visited = collections.defaultdict(bool)
+        
+        for u in self.nodes_:
+            if not visited[u]:
+                q = collections.deque([u])
+                
+                while q:
+                    current = q.pop()
+                    visited[current] = True
+
+                    for ptr in self.pointers[current]:
+                        for v in self.simplices[ptr].nodes_:
+                            if degrees[current] < k:
+                                degrees[v] -= 1
+                            if not visited[v]:
+                                q.append(v)
+
+        S = set([])
+        for u in degrees.keys():
+            if degrees[u] >= k:
+                S.add(u)
+                for ptr in self.pointers[u]:
+                    for v in self.simplices[ptr].nodes_:
+                        if degrees[v] >= k:
+                            S.add(v)
+        return self.subhypergraph(S)
+
+
     def subhypergraph(self, S):
         H = Hypergraph()
         edges = []
 
-        for u in S:
-            for ptr in self.pointers[u]:
-                edges.append(self.simplices[ptr])
+        for edge in self.simplices:
+            if set(edge.nodes_).issubset(S):
+                edges.append(edge)
 
         for e in edges:
             H.add_simplex(e)

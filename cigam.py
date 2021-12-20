@@ -227,12 +227,10 @@ class CIGAM:
         for l in range(1, layers_max + 1):
             err, (px, py) = segments_fit(log_num_ranks, log_degrees, count=l)
             if not np.isnan(err):
-                print(err) 
                 log_err.append(np.log(err))
                 num_layers.append(l)
                 breakpoints.append(px)
 
-        print(log_err, num_layers)
         plt.figure()
         plt.plot(num_layers, log_err)
         plt.savefig('elbow.png') 
@@ -260,14 +258,16 @@ class CIGAM:
 
         for h in itertools.product(h_space, repeat=l-1):
             h = list(h)
-            if h == sorted(h):
+            if all([h[i] < h[i + 1] for i in range(len(h) - 1)]):
+                if len(h) > 0 and h[0] == 0: 
+                    h = h[1:]
                 print(h + [1])
                 if bayesian and not learnable_ranks:
                     fit = self.fit_model_bayesian(G, H=np.array(h + [1.0]), ranks=features)
                     ll = fit['lp__'].max()
                 else:   
                     ll, spearman,  _ = self.fit_model_given_ranks_torch(G, H=np.array(h + [1.0]),  features=features, learnable_ranks=learnable_ranks, num_epochs=num_epochs)
-                if (criterion == 'log-posterior'  and ll >= maximum):
+                if ((criterion == 'log-posterior' or not learnable_ranks) and ll >= maximum):
                     maximum = ll
                     argmax = np.array(h + [1.0])
                 elif spearman >= maximum and learnable_ranks and criterion == 'spearman': 
@@ -673,10 +673,11 @@ class CIGAM:
 
         for i in range(num_epochs):
             if learnable_ranks or (not learnable_ranks and i == 0):
-                ranks, sizes, neg_sizes = ranks_model(features, edges)
-            
-            y_pred = graph_model(ranks)
-            neg_log_posterior = - torch.sum(sizes.sum(0) * torch.log(y_pred) + neg_sizes.sum(0) * torch.log(1 - y_pred)) + graph_model.lambda_ * torch.sum(ranks) + self.alpha_c * torch.sum(graph_model.c) - (self.alpha_lambda - 1) * torch.log(graph_model.lambda_) + self.beta_lambda * graph_model.lambda_
+                ranks, sizes, neg_sizes = ranks_model(features, edges) 
+            y_pred, ranks_log_likelihood = graph_model(ranks)
+
+            neg_log_posterior = - torch.sum(sizes.sum(0) * torch.log(y_pred) + neg_sizes.sum(0) * torch.log(1 - y_pred)) + \
+                                - ranks_log_likelihood + self.alpha_c * torch.sum(graph_model.c) - (self.alpha_lambda - 1) * torch.log(graph_model.lambda_) + self.beta_lambda * graph_model.lambda_
             if self.constrained:
                 neg_log_barrier = - torch.log(graph_model.lambda_) - torch.log(graph_model.c[0] - 1) - torch.log(torch.exp(graph_model.lambda_) - graph_model.c[-1])
                 for i in range(len(H) - 1):
@@ -710,7 +711,7 @@ class CIGAM:
                 max_log_posterior = log_posteriors[-1]
                 opt_graph_model = copy.deepcopy(graph_model)
                 opt_ranks_model = copy.deepcopy(ranks_model)
-            if i > 1:
+            if i > 2:
                 if (log_posteriors[-1] < log_posteriors[-2] and early_stopping == 'log-posterior') or (spearmans[-1] > spearmans[-2] and learnable_ranks and early_stopping == 'spearman'):
                     patience += 1
                 else:
@@ -830,8 +831,9 @@ class CIGAMGraphTorchModel(nn.Module):
         self.num_layers = len(H)
 
         self.c = nn.Parameter(torch.linspace(1.1, torch.exp(torch.tensor(1)) - 0.1, self.num_layers).float(), requires_grad=True)
-        self.lambda_ = nn.Parameter(torch.tensor(1).float(), requires_grad=True) 
-
+        self.lambda_ = nn.Parameter(torch.tensor(1.1).float(), requires_grad=True) 
+    
+        self.log_simgoid = nn.LogSigmoid()
 
     def forward(self, ranks):
 
@@ -841,5 +843,7 @@ class CIGAMGraphTorchModel(nn.Module):
 
         for i in range(n):
             y_pred[i, :] = torch.pow(self.c, -1 - self.H[-1] + ranks[i])
-    
-        return y_pred
+   
+        ranks_log_likelihood = n * torch.log(self.lambda_) + n * torch.sum(ranks) + n * self.log_simgoid(self.lambda_)
+
+        return y_pred, ranks_log_likelihood
