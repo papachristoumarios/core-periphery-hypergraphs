@@ -447,7 +447,6 @@ class Hypergraph:
                             S.add(v)
         return self.subhypergraph(S)
 
-
     def subhypergraph(self, S):
         H = Hypergraph()
         edges = []
@@ -463,6 +462,34 @@ class Hypergraph:
             H[u] = copy.deepcopy(data)
 
         return H
+
+    def pagerank(self):
+        H = self.clique_decomposition(dtype=nx.Graph, weighted=True)
+        return nx.algorithms.link_analysis.pagerank(H, weight='weight')
+
+    def clique_graph_eigenvector(self):
+        H = self.clique_decomposition(dtype=nx.Graph, weighted=True)
+        return nx.eigenvector_centrality(H, weight='weight')
+
+    def borgatti_everett(self, max_iter=1000):
+        H = self.clique_decomposition(dtype=nx.Graph, weighted=False)
+        A = nx.to_numpy_array(H)
+        degrees = A.sum(-1)
+        c = np.random.rand(A.shape[0], 1)
+        c[degrees == 0] = 0
+        c /= np.linalg.norm(c)
+        c_prev = c
+        
+        for _ in range(max_iter):
+            num = A @ c
+            den = np.sum(c**2) - c**2
+            c_prev = c
+            c = num / den
+            c /= np.linalg.norm(c)
+            if np.allclose(c, c_prev):
+                break
+
+        return c
 
 def mns(H, s):
     if isinstance(H, Hypergraph):
