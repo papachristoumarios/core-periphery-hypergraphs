@@ -1,6 +1,9 @@
 from base import *
 from hypergraph import *
 
+def print_args(args):
+    pprint.pprint(vars(args))
+
 def segments_fit(X, Y, count):
     xmin = X.min()
     xmax = X.max()
@@ -45,11 +48,11 @@ def normalize_df(df, fields, method='minmax'):
 def normalize_array(x, method='minmax'):
     return np.apply_along_axis(lambda u: normalize(u, method), 0, x)
 
-def normalize(x, method='minmax'):
+def normalize(x, method='minmax', eps=1e-5):
     if method == 'minmax':
         return (x - x.min()) / (x.max() - x.min())
     elif method == 'z-score':
-        return (x - x.mean()) / x.std()
+        return (x - x.mean()) / (x.std() + eps)
 
 
 @jit(nopython=True)

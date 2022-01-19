@@ -329,7 +329,7 @@ def load_hypergraph(name='email-Enron', location='/data/mp2242', simplex_min_siz
     if load_features:
         features = pd.read_csv(os.path.join(location, name, '{}-features-whole.txt'.format(name)), delimiter=' ', header=None).set_index(0)
         for col in features.columns:
-            features[col] = np.log(features[col])
+            features[col] = np.log(features[col] + 1)
         features = dict(zip(features.index, features.values))
 
     H = Hypergraph()

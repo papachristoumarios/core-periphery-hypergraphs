@@ -23,7 +23,7 @@ class LogisticTH:
         return G, ranks
     
     @staticmethod
-    def graph_log_likelihood(edge_set, n, M, order_min, order_max, ranks, alpha, negative_samples):
+    def graph_log_likelihood(edge_set, n, M_neg, order_min, order_max, ranks, alpha, negative_samples):
 
         log_likelihood_pos = 0
         log_likelihood_neg = 0
@@ -34,26 +34,16 @@ class LogisticTH:
 
         neg_edge_set = set([])
         
-        if negative_samples > 0:
-            
-            for _ in range(negative_samples):
-                while True:
-                    order = np.random.choice(np.arange(order_min, order_max + 1), p =M/M.sum())
-                    neg_edge = tuple(sorted(sample_combination(n=n, k=order)))
-                    if neg_edge not in edge_set and neg_edge not in neg_edge_set:
-                        break
-                neg_edge_index = np.array(neg_edge)
-                log_likelihood_neg += np.log(1 - sigmoid(generalized_mean(ranks[neg_edge_index], alpha) / n))
-                neg_edge_set.add(neg_edge)
-            return log_likelihood_pos + (n / negative_samples) * log_likelihood_neg
-        else:
-            for order in range(order_min, order_max + 1):
-                for neg_edge in itertools.combinations(range(n), order):
-                    if neg_edge not in edge_set:
-                        neg_edge_index = np.array(neg_edge)
-                        log_likelihood_neg += np.log(1 - sigmoid(generalized_mean(ranks[neg_edge_index], alpha) / n))
-
-            return log_likelihood_pos + log_likelihood_neg
+        for _ in range(negative_samples):
+            while True:
+                order = np.random.choice(np.arange(order_min, order_max + 1), p=M_neg/M_neg.sum())
+                neg_edge = tuple(sorted(sample_combination(n=n, k=order)))
+                if neg_edge not in edge_set and neg_edge not in neg_edge_set:
+                    neg_edge_index = np.array(neg_edge)
+                    log_likelihood_neg += np.log(1 - sigmoid(generalized_mean(ranks[neg_edge_index], alpha) / n))
+                    neg_edge_set.add(neg_edge)
+                    break
+        return log_likelihood_pos + (M_neg.sum() / negative_samples) * log_likelihood_neg
 
     def display_p(self):
         if np.isinf(self.alpha):
@@ -106,7 +96,7 @@ class LogisticTH:
         plt.ylabel('Node Degree (log)')
         plt.legend()
 
-    def fit(self, G, p, negative_samples): 
+    def fit(self, G, p, negative_samples, max_iters=10000, eval_log_likelihood=True): 
         n = len(G)
         assert(p > max(1, self.alpha))
         q = p / (p - 1)
@@ -133,21 +123,20 @@ class LogisticTH:
 
         x_prev = x
 
-        while True:
-            print('iter')
+        pbar = tqdm(range(max_iters))
+        for _ in range(max_iters):
             y = fixed_point(x, edges, order_factorial, M, self.order_min, self.order_max, self.alpha)
             x = np.linalg.norm(y, q)**(1 - q) * np.abs(y)**(q - 2) * y
+            pbar.set_description('Error: {}'.format(np.linalg.norm(x - x_prev) / (1e-5 + np.linalg.norm(x_prev))))
+            pbar.update()
             if np.allclose(x, x_prev, rtol=1e-3):
                 break
             else:
                 x_prev = x
-            
-        print('Done fitting Logistic-TH')
-
+        pbar.close()
         ranks = np.argsort(-x)
         self.ranks = ranks
         x = normalize(x)
-        ll = LogisticTH.graph_log_likelihood(G.to_index(set), len(G), G.num_simplices(separate=False), self.order_min, self.order_max, ranks, 10, negative_samples=negative_samples)
-        
+        ll = LogisticTH.graph_log_likelihood(G.to_index(set), len(G), G.num_simplices(separate=True, negate=True), self.order_min, self.order_max, ranks, 10, negative_samples=negative_samples)
         return ll, x, ranks
 

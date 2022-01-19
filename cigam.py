@@ -247,35 +247,38 @@ class CIGAM:
 
         return num_layers[argmax], log_err, num_layers, breakpoints
 
-    def find_hyperparameters(self, G, features, learnable_ranks=False, layers_max=10, step=0.2, bayesian=True, num_epochs=50, criterion='spearman'):
+    def find_hyperparameters(self, G, features, gold_ranks, learnable_ranks=False, layers_max=10, step=0.2, bayesian=True, num_epochs=50, criterion='spearman'):
 
         l, _, _, _ = self.find_number_of_layers(G, layers_max=layers_max)
 
         h_space = np.arange(0, 1, step)
 
-        argmax = [1]
+        argmax = None
         maximum = - sys.maxsize
 
-        for h in itertools.product(h_space, repeat=l-1):
-            h = list(h)
-            if all([h[i] < h[i + 1] for i in range(len(h) - 1)]):
-                if len(h) > 0 and h[0] == 0: 
-                    h = h[1:]
-                print(h + [1])
-                if bayesian and not learnable_ranks:
-                    fit = self.fit_model_bayesian(G, H=np.array(h + [1.0]), ranks=features)
-                    ll = fit['lp__'].max()
-                else:   
-                    ll, spearman,  _ = self.fit_model_given_ranks_torch(G, H=np.array(h + [1.0]),  features=features, learnable_ranks=learnable_ranks, num_epochs=num_epochs)
-                if ((criterion == 'log-posterior' or not learnable_ranks) and ll >= maximum):
-                    maximum = ll
-                    argmax = np.array(h + [1.0])
-                elif spearman >= maximum and learnable_ranks and criterion == 'spearman': 
-                    maximum = spearman
-                    argmax = np.array(h + [1.0])
+        while argmax is None:
+            for h in itertools.product(h_space, repeat=l-1):
+                h = list(h)
+                if all([h[i] < h[i + 1] for i in range(len(h) - 1)]):
+                    if len(h) > 0 and h[0] == 0: 
+                        h = h[1:]
+                    print(h + [1])
+                    if bayesian and not learnable_ranks:
+                        fit = self.fit_model_bayesian(G, H=np.array(h + [1.0]), ranks=gold_ranks)
+                        ll = fit['lp__'].max()
+                    else:   
+                        ll, spearman,  _ = self.fit_model_given_ranks_torch(G, H=np.array(h + [1.0]),  features=features, gold_ranks=gold_ranks, learnable_ranks=learnable_ranks, num_epochs=num_epochs)
+                    if ((criterion == 'log-posterior' or not learnable_ranks) and ll >= maximum):
+                        maximum = ll
+                        argmax = np.array(h + [1.0])
+                    elif spearman >= maximum and learnable_ranks and criterion == 'spearman': 
+                        maximum = spearman
+                        argmax = np.array(h + [1.0])
+            if argmax is None:
+                print('Increasing the number of layers to {}'.format(l + 1))
+                l += 1
 
         self.H = argmax
-
         return argmax
 
     def params_posterior(self):
@@ -643,23 +646,23 @@ class CIGAM:
 
         return ranks
     
-    def fit_model_given_ranks_torch(self, G, H, features, learnable_ranks=False, num_epochs=50, max_patience=5, ranks_col=0, early_stopping='log-posterior'):
+    def fit_model_given_ranks_torch(self, G, H, features, gold_ranks, learnable_ranks=False, num_epochs=50, max_patience=5, ranks_col=0, early_stopping='log-posterior', lr=1e-8, smoothing=1e-10):
         
         if len(features.shape) == 1:
             features = features.reshape(features.shape[0], 1)
         
-        gold_ranks = features[:, ranks_col]
+        
         features = torch.from_numpy(features.astype(np.float32)).cuda()
         
         ranks_model = CIGAMRanksTorchModel(feature_dims=features.shape[-1], order_min=self.order_min, order_max=self.order_max, H=H, n=len(G), learnable_ranks=learnable_ranks).cuda()
-        graph_model = CIGAMGraphTorchModel(order_min=self.order_min, order_max=self.order_max, H=H).cuda()
+        graph_model = CIGAMGraphTorchModel(order_min=self.order_min, order_max=self.order_max, H=H, smoothing=torch.tensor(1.0 * smoothing)).cuda()
         
         edges = torch.from_numpy(G.to_index()).cuda()
         
         if learnable_ranks:
-            optimizer = torch.optim.SGD(list(graph_model.parameters()) + list(ranks_model.parameters()), lr=1e-6)
+            optimizer = torch.optim.SGD(list(graph_model.parameters()) + list(ranks_model.parameters()), lr=lr)
         else:
-            optimizer = torch.optim.SGD(graph_model.parameters(), lr=1e-6)
+            optimizer = torch.optim.SGD(graph_model.parameters(), lr=lr)
         
         log_posteriors = []
         spearmans = []
@@ -671,15 +674,20 @@ class CIGAM:
 
         pbar = tqdm(range(num_epochs))
 
-        for i in range(num_epochs):
-            if learnable_ranks or (not learnable_ranks and i == 0):
-                ranks, sizes, neg_sizes = ranks_model(features, edges) 
-            y_pred, ranks_log_likelihood = graph_model(ranks)
+        log_sigmoid = nn.LogSigmoid()
 
-            neg_log_posterior = - torch.sum(sizes.sum(0) * torch.log(y_pred) + neg_sizes.sum(0) * torch.log(1 - y_pred)) + \
-                                - ranks_log_likelihood + self.alpha_c * torch.sum(graph_model.c) - (self.alpha_lambda - 1) * torch.log(graph_model.lambda_) + self.beta_lambda * graph_model.lambda_
+        for i in range(num_epochs):
+            if learnable_ranks:
+                ranks, sizes, neg_sizes = ranks_model(features, edges)
+            elif not learnable_ranks and i == 0:
+                ranks, sizes, neg_sizes = ranks_model(torch.from_numpy(gold_ranks.astype(np.float32)).cuda().unsqueeze(-1), edges)
+            y_pred = graph_model(ranks)
+
+            neg_log_posterior = - torch.sum(sizes.sum(0) * torch.log(y_pred) + neg_sizes.sum(0) * torch.log(1 - y_pred)) - \
+                                 ranks.size(0) * torch.log(graph_model.lambda_) + graph_model.lambda_ * ranks.sum() - ranks.size(0) * log_sigmoid(graph_model.lambda_) 
+                                #self.alpha_c * torch.sum(graph_model.c) - (self.alpha_lambda - 1) * torch.log(graph_model.lambda_) + self.beta_lambda * graph_model.lambda_
             if self.constrained:
-                neg_log_barrier = - torch.log(graph_model.lambda_) - torch.log(graph_model.c[0] - 1) - torch.log(torch.exp(graph_model.lambda_) - graph_model.c[-1])
+                neg_log_barrier = - torch.log(graph_model.c[0] - 1)
                 for i in range(len(H) - 1):
                     neg_log_posterior -= torch.log(graph_model.c[i + 1] - graph_model.c[i])
             else:
@@ -691,15 +699,13 @@ class CIGAM:
             optimizer.step()
             optimizer.zero_grad()
             log_posteriors.append(-neg_log_posterior.item())
-            
             if learnable_ranks:
                 spearmans.append(scipy.stats.spearmanr(gold_ranks, ranks.clone().detach().cpu().numpy()[:, ranks_col]).correlation)
-                pbar.set_description('Loss: {}, Spearman: {}'.format(log_posteriors[-1], spearmans[-1]))
+                pbar.set_description('Loss: {}, LB: {}, Spearman: {}'.format(log_posteriors[-1], neg_log_barrier.item(), spearmans[-1]))
             else:
                 spearmans.append(1)
-                pbar.set_description('Loss: {}'.format(log_posteriors[-1]))
+                pbar.set_description('Loss: {}, LB: {}'.format(log_posteriors[-1], neg_log_barrier.item()))
             pbar.update()
-
             # Early stopping
             if not np.isnan(log_posteriors[-1]) and max_log_posterior <= log_posteriors[-1] and early_stopping == 'log-posterior':
                 max_spearman = spearmans[-1]
@@ -720,9 +726,9 @@ class CIGAM:
                 if patience == max_patience:
                     break
         pbar.close()
-
+        
         self.c = opt_graph_model.c.detach().cpu().numpy()
-        self.lamdba_ = opt_graph_model.lambda_.detach().cpu().numpy()
+        self.lambda_ = opt_graph_model.lambda_.detach().cpu().numpy()
         ranks = ranks.detach().cpu().numpy()
 
         return max_log_posterior, max_spearman, ranks
@@ -797,7 +803,7 @@ class CIGAMRanksTorchModel(nn.Module):
         num_layers = torch.zeros(ranks.size(0), len(self.H)).long().cuda()
         
         j = 0
-   
+
         for i in range(ranks.size(0)):
             if self.H[-1] - ranks[i, 0].item() > self.H[j]:
                 j += 1
@@ -822,18 +828,17 @@ class CIGAMRanksTorchModel(nn.Module):
 
 class CIGAMGraphTorchModel(nn.Module):
 
-    def __init__(self, order_min, order_max, H):
+    def __init__(self, order_min, order_max, H, smoothing=torch.exp(torch.tensor(-50.0))):
         super().__init__()
 
         self.order_min = order_min
         self.order_max = order_max
         self.H = H
         self.num_layers = len(H)
-
+        self.smoothing = smoothing
         self.c = nn.Parameter(torch.linspace(1.1, torch.exp(torch.tensor(1)) - 0.1, self.num_layers).float(), requires_grad=True)
         self.lambda_ = nn.Parameter(torch.tensor(1.1).float(), requires_grad=True) 
     
-        self.log_simgoid = nn.LogSigmoid()
 
     def forward(self, ranks):
 
@@ -843,7 +848,9 @@ class CIGAMGraphTorchModel(nn.Module):
 
         for i in range(n):
             y_pred[i, :] = torch.pow(self.c, -1 - self.H[-1] + ranks[i])
-   
-        ranks_log_likelihood = n * torch.log(self.lambda_) + n * torch.sum(ranks) + n * self.log_simgoid(self.lambda_)
+  
+        y_pred = torch.nan_to_num(y_pred, nan=0) + self.smoothing
+        #y_pred = torch.minimum(y_pred, self.smoothing)
+        #y_pred = torch.maximum(y_pred, 1 - self.smoothing)
 
-        return y_pred, ranks_log_likelihood
+        return y_pred

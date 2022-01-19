@@ -1,4 +1,5 @@
 from base import *
+from utils import *
 
 class Simplex:
 
@@ -105,17 +106,25 @@ class Hypergraph:
     def __len__(self):
         return len(self.nodes_)
 
-    def num_simplices(self, separate=False):
-        if separate:
-            k_min = min(self.simplex_sizes.keys())
-            k_max = max(self.simplex_sizes.keys())
-            num_simplices = np.zeros(k_max - k_min + 1, dtype=int)
-            for k in range(k_min, k_max + 1):
-                num_simplices[k - k_min] = self.simplex_sizes[k]
-            return num_simplices
+    def num_simplices(self, separate=False, negate=False):
+        k_min = min(self.simplex_sizes.keys())
+        k_max = max(self.simplex_sizes.keys())
+        num_simplices = np.zeros(k_max - k_min + 1, dtype=int)
+        for k in range(k_min, k_max + 1):
+            num_simplices[k - k_min] = self.simplex_sizes[k]
+        if not negate:
+            if separate:
+                return num_simplices
+            else:
+                return num_simplices.sum()
         else:
-            return len(self.simplices)
-    
+            binomial_coeffs = binomial_coefficients(self.__len__(), k_max)
+            neg_num_simplices = binomial_coeffs[self.__len__(), k_min:(1 + k_max)] - num_simplices
+            if separate:
+                return neg_num_simplices
+            else:
+                return neg_num_simplices.sum()
+
     def get_order_range(self):
         return min(self.simplex_sizes.keys()), max(self.simplex_sizes.keys())
 
@@ -168,7 +177,7 @@ class Hypergraph:
             for u, data in self.nodes(data=True):
                 G[u] = copy.deepcopy(data)
             for i in range(G.num_simplices()):
-                G.simplices[i]['weight'] = weights[G.simplices[i].nodes_[0], G.simplices[i].nodes_[1]]
+                G.simplices[i].simplex_data['weight'] = weights[G.simplices[i].nodes_[0], G.simplices[i].nodes_[1]]
                 
             return G
     
@@ -327,17 +336,18 @@ class Hypergraph:
 
     def domination_curve(self, ordering):
 
-        x_axis = np.arange(1, 1 + len(ordering)).astype(np.float32)
-        y_axis = np.zeros(len(ordering))
+        x_axis = np.arange(0, 1 + len(ordering)).astype(np.float32)
+        y_axis = np.zeros(1 + len(ordering))
         
         S = set([])
 
         for i, v in enumerate(ordering):
+            S |= {v} 
             for p in self.pointers[v]:
                 for u in self.simplices[p].nodes_:
                     S |= {u}
 
-            y_axis[i] = len(S)
+            y_axis[i + 1] = len(S)
 
         y_axis = y_axis / y_axis.max()
         x_axis = x_axis / x_axis.max()
@@ -469,7 +479,7 @@ class Hypergraph:
 
     def clique_graph_eigenvector(self):
         H = self.clique_decomposition(dtype=nx.Graph, weighted=True)
-        return nx.eigenvector_centrality(H, weight='weight')
+        return nx.eigenvector_centrality(H, weight='weight', max_iter=1000)
 
     def borgatti_everett(self, max_iter=1000):
         H = self.clique_decomposition(dtype=nx.Graph, weighted=False)
@@ -490,6 +500,18 @@ class Hypergraph:
                 break
 
         return c
+
+    def centrality_features(self):
+        n = self.__len__()
+        assert(list(sorted([u for u in self.nodes_])) == list(range(n)))
+
+        degrees_np = np.array([self.degree(u) for u in range(n)])
+        clique_eigenvector = self.clique_graph_eigenvector()
+        clique_eigenvector_np = np.array([clique_eigenvector[u] for u in range(n)])
+        pagerank = self.pagerank()
+        pagerank_np = np.array([pagerank[u] for u in range(n)])
+
+        return np.log(1 +np.vstack((degrees_np, clique_eigenvector_np, pagerank_np)).T)
 
 def mns(H, s):
     if isinstance(H, Hypergraph):
