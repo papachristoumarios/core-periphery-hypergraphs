@@ -3,12 +3,13 @@ from utils import *
 from dataloader import *
 from hypergraph import *
 
-class LogisticTH:
+class HyperNSM:
 
-    def __init__(self, alpha=10, order_min=2, order_max=2):
+    def __init__(self, alpha=10, order_min=2, order_max=2, xi = lambda k: 1 / k):
         self.alpha = alpha
         self.order_min = order_min
         self.order_max = order_max
+        self.xi = xi
 
     def sample(self, n):
         G = Hypergraph()
@@ -17,20 +18,20 @@ class LogisticTH:
         for order in range(self.order_min, self.order_max + 1):
             for edge in itertools.combinations(range(n), order):
                 edge = np.array(edge)
-                p_edge = sigmoid(generalized_mean(ranks[edge], self.alpha) / n)
-                if np.random.unifomr() <= p_edge:
+                p_edge = sigmoid(self.xi(order) * generalized_mean(ranks[edge], self.alpha))
+                if np.random.uniform() <= p_edge:
                     G.add_simplex_from_nodes(nodes=edge.tolist(), simplex_data = {})
         return G, ranks
     
     @staticmethod
-    def graph_log_likelihood(edge_set, n, M_neg, order_min, order_max, ranks, alpha, negative_samples):
+    def graph_log_likelihood(edge_set, n, M_neg, order_min, order_max, ranks, alpha, xi, negative_samples):
 
         log_likelihood_pos = 0
         log_likelihood_neg = 0
         
         for edge in edge_set:
             edge_index = np.array(edge)
-            log_likelihood_pos += np.log(sigmoid(generalized_mean(ranks[edge_index], alpha) / n))
+            log_likelihood_pos += np.log(sigmoid(xi(len(edge_index)) * generalized_mean(ranks[edge_index], alpha) / n))
 
         neg_edge_set = set([])
         
@@ -40,7 +41,7 @@ class LogisticTH:
                 neg_edge = tuple(sorted(sample_combination(n=n, k=order)))
                 if neg_edge not in edge_set and neg_edge not in neg_edge_set:
                     neg_edge_index = np.array(neg_edge)
-                    log_likelihood_neg += np.log(1 - sigmoid(generalized_mean(ranks[neg_edge_index], alpha) / n))
+                    log_likelihood_neg += np.log(1 - sigmoid(xi(order) * generalized_mean(ranks[neg_edge_index], alpha) / n))
                     neg_edge_set.add(neg_edge)
                     break
         return log_likelihood_pos + (M_neg.sum() / negative_samples) * log_likelihood_neg
@@ -101,23 +102,27 @@ class LogisticTH:
         assert(p > max(1, self.alpha))
         q = p / (p - 1)
         x = np.random.uniform(size=n)
-        order_factorial = np.zeros(self.order_max + 2)
-        order_factorial[1] = 1
-        for i in range(2, self.order_max + 1):
-            order_factorial[i] = order_factorial[i - 1] * i
 
         edges = G.to_index()
         M = G.num_simplices(separate=True)
 
-        def fixed_point(x, edges, order_factorial, M, order_min, order_max, alpha):
-            y = np.zeros_like(x) 
+        def fixed_point(x, edges,  M, order_min, order_max, alpha, xi):
+            z = np.zeros((edges.shape[0], edges.shape[1]))
+            w = np.zeros_like(x)
 
             for i, k in enumerate(range(order_min, order_max + 1)):
                 for m in range(M[i]):
-                    generalized_mn = generalized_mean(x[edges[i, m, :k]], alpha)
-                    y[edges] += order_factorial[k] / generalized_mn**(alpha - 1)
+                    for j in edges[i, m, :k]:
+                        z[i, m] += x[j]**alpha
 
-            y *= np.abs(x)**(alpha - 2) * x
+            z = z**(1 / alpha - 1)
+
+            for i, k in enumerate(range(order_min, order_max + 1)):
+                for m in range(M[i]):
+                    for j in edges[i, m, :k]:
+                        w[j] += xi(k) * z[i, m]
+
+            y = (x**(alpha - 1)) * w                
 
             return y
 
@@ -125,8 +130,8 @@ class LogisticTH:
 
         pbar = tqdm(range(max_iters))
         for _ in range(max_iters):
-            y = fixed_point(x, edges, order_factorial, M, self.order_min, self.order_max, self.alpha)
-            x = np.linalg.norm(y, q)**(1 - q) * np.abs(y)**(q - 2) * y
+            y = fixed_point(x, edges, M, self.order_min, self.order_max, self.alpha, self.xi)
+            x = (y / np.linalg.norm(y, q))**(1 / (p - 1))
             pbar.set_description('Error: {}'.format(np.linalg.norm(x - x_prev) / (1e-5 + np.linalg.norm(x_prev))))
             pbar.update()
             if np.allclose(x, x_prev, rtol=1e-3):
@@ -137,6 +142,6 @@ class LogisticTH:
         ranks = np.argsort(-x)
         self.ranks = ranks
         x = normalize(x)
-        ll = LogisticTH.graph_log_likelihood(G.to_index(set), len(G), G.num_simplices(separate=True, negate=True), self.order_min, self.order_max, ranks, 10, negative_samples=negative_samples)
+        ll = LogisticTH.graph_log_likelihood(G.to_index(set), len(G), G.num_simplices(separate=True, negate=True), self.order_min, self.order_max, ranks, 10, self.xi, negative_samples=negative_samples)
         return ll, x, ranks
 
