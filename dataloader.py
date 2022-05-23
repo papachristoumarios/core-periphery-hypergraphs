@@ -19,11 +19,11 @@ def load_dataset(name, **kwargs):
         G, labels = load_ca_netscience()
     elif name in  ['cs-faculty', 'business-faculty', 'history-faculty']:
         if name == 'cs-faculty':
-            G, labels = load_faculty(location='/data/mp2242/faculty/ComputerScience_edgelist.txt')
+            G, labels = load_faculty(location=f'{DATA_ROOT}/faculty/ComputerScience_edgelist.txt')
         elif name == 'history-faculty':
-            G, labels = load_faculty(location='/data/mp2242/faculty/History_edgelist.txt')
+            G, labels = load_faculty(location=f'{DATA_ROOT}/faculty/History_edgelist.txt')
         elif name == 'business-faculty':
-            G, labels = load_faculty(location='/data/mp2242/faculty/Business_edgelist.txt')
+            G, labels = load_faculty(location=f'{DATA_ROOT}/faculty/Business_edgelist.txt')
     elif name == 'celegans':
         G, labels = load_celegans()
     elif name == 'open-airlines':
@@ -47,7 +47,7 @@ def load_dataset(name, **kwargs):
 
     return G, labels
 
-def load_world_trade(location='/data/mp2242/world-trade/world-trade.csv', relabel=True):
+def load_world_trade(location=f'{DATA_ROOT}/world-trade/world-trade.csv', relabel=True):
     df = pd.read_csv(location)
     df = remove_self_loops(df, 'from', 'to')
     G = nx.convert_matrix.from_pandas_edgelist(df, source='from', target='to')
@@ -63,7 +63,7 @@ def load_world_trade(location='/data/mp2242/world-trade/world-trade.csv', relabe
 
     return Hypergraph.graph_to_hypergraph(G), labels
 
-def load_faculty(location='/data/mp2242/faculty/ComputerScience_edgelist.txt', relabel=True):
+def load_faculty(location=f'{DATA_ROOT}/faculty/ComputerScience_edgelist.txt', relabel=True):
     df = pd.read_csv(location, sep='\t')
     df = remove_self_loops(df, '# u', 'v')
     G = nx.convert_matrix.from_pandas_edgelist(df, source='# u', target='v')
@@ -84,7 +84,7 @@ def load_faculty(location='/data/mp2242/faculty/ComputerScience_edgelist.txt', r
 
     return Hypergraph.graph_to_hypergraph(G), labels
 
-def load_polblogs(location='/data/mp2242/polblogs/polblogs.mtx', relabel=True):
+def load_polblogs(location=f'{DATA_ROOT}/polblogs/polblogs.mtx', relabel=True):
     df = pd.read_csv(location, sep=' ', comment='%', header=None)
     G = nx.convert_matrix.from_pandas_edgelist(df, source=0, target=1)
     labels = {}
@@ -99,7 +99,7 @@ def load_polblogs(location='/data/mp2242/polblogs/polblogs.mtx', relabel=True):
 
     return Hypergraph.graph_to_hypergraph(G), labels
 
-def load_airports(location='/data/mp2242/airports/USairport500.txt', relabel=True):
+def load_airports(location=f'{DATA_ROOT}/airports/USairport500.txt', relabel=True):
     df = pd.read_csv(location, sep=' ', header=None)
     G = nx.convert_matrix.from_pandas_edgelist(df, source=0, target=1)
     labels = {}
@@ -114,7 +114,7 @@ def load_airports(location='/data/mp2242/airports/USairport500.txt', relabel=Tru
 
     return Hypergraph.graph_to_hypergraph(G), labels
 
-def load_pvc_Enron(location='/data/mp2242/pvc-enron/pvc-enron.csv', relabel=True):
+def load_pvc_Enron(location=f'{DATA_ROOT}/pvc-enron/pvc-enron.csv', relabel=True):
     df = pd.read_csv(location, sep=' ', header=None)
     G = nx.convert_matrix.from_pandas_edgelist(df, source=0, target=1, create_using=nx.Graph)
     labels = {}
@@ -129,7 +129,7 @@ def load_pvc_Enron(location='/data/mp2242/pvc-enron/pvc-enron.csv', relabel=True
 
     return Hypergraph.graph_to_hypergraph(G), labels
 
-def load_pvc_text_Reality(location='/data/mp2242/pvc-text-Reality/pvc-text-Reality.csv', relabel=True):
+def load_pvc_text_Reality(location=f'{DATA_ROOT}/pvc-text-Reality/pvc-text-Reality.csv', relabel=True):
     df = pd.read_csv(location, sep=' ', header=None)
     G = nx.convert_matrix.from_pandas_edgelist(df, source=0, target=1, create_using=nx.Graph)
     labels = {}
@@ -144,7 +144,7 @@ def load_pvc_text_Reality(location='/data/mp2242/pvc-text-Reality/pvc-text-Reali
 
     return Hypergraph.graph_to_hypergraph(G), labels
 
-def load_celegans(location='/data/mp2242/celegans', relabel=True):
+def load_celegans(location=f'{DATA_ROOT}/celegans', relabel=True):
     A = np.genfromtxt(os.path.join(location, 'celegans_matrix.csv'), delimiter=',', dtype=np.int64).astype(np.int64)
     locs = np.genfromtxt(os.path.join(location, 'celegans_positions.csv'), delimiter=',').astype(np.float64)
     mapping = {}
@@ -170,7 +170,7 @@ def load_celegans(location='/data/mp2242/celegans', relabel=True):
 
     return Hypergraph.graph_to_hypergraph(G), labels
 
-def load_london_underground(location='/data/mp2242/london_underground', relabel=True):
+def load_london_underground(location=f'{DATA_ROOT}/london_underground', relabel=True):
     A = np.genfromtxt(os.path.join(location, 'london_underground_network.csv'), delimiter=',', dtype=np.int64).astype(np.int64)
     locs = np.genfromtxt(os.path.join(location, 'london_underground_tubes.csv'), delimiter=',').astype(np.float64)
     names = np.genfromtxt(os.path.join(location, 'london_underground_names.csv'), delimiter='\t', dtype=str)
@@ -203,7 +203,7 @@ def load_london_underground(location='/data/mp2242/london_underground', relabel=
 
     return Hypergraph.graph_to_hypergraph(G), labels
 
-def load_open_airlines(location='/data/mp2242/open_airlines', relabel=True):
+def load_open_airlines(location=f'{DATA_ROOT}/open_airlines', relabel=True):
     airports = pd.read_csv(os.path.join(location, 'airports.dat'), header=None).iloc[:, [4, 6, 7]]
     routes = pd.read_csv(os.path.join(location, 'routes.dat'), header=None).iloc[:, [2, 4]]
     G = nx.convert_matrix.from_pandas_edgelist(routes, source=2, target=4, create_using=nx.Graph)
@@ -228,7 +228,7 @@ def load_open_airlines(location='/data/mp2242/open_airlines', relabel=True):
 
     return Hypergraph.graph_to_hypergraph(G), labels
 
-def load_fungal(location='/data/mp2242/fungal_networks', fungus='Pv_M_I_U_N_42d_1.mat', relabel=True):
+def load_fungal(location=f'{DATA_ROOT}/fungal_networks', fungus='Pv_M_I_U_N_42d_1.mat', relabel=True):
     mat = scipy.io.loadmat(os.path.join(location, fungus))
     G = nx.from_scipy_sparse_matrix(mat['A'], create_using=nx.Graph)
     mapping = {}
@@ -250,7 +250,7 @@ def load_fungal(location='/data/mp2242/fungal_networks', fungus='Pv_M_I_U_N_42d_
 
     return Hypergraph.graph_to_hypergraph(G), labels
 
-def load_ca_netscience(location='/data/mp2242/ca-netscience/ca-netscience.mtx', relabel=True):
+def load_ca_netscience(location=f'{DATA_ROOT}/ca-netscience/ca-netscience.mtx', relabel=True):
     df = pd.read_csv(location, sep=' ', header=None, skiprows=2)
     G = nx.convert_matrix.from_pandas_edgelist(df, source=0, target=1, create_using=nx.Graph)
     labels = {}
@@ -265,7 +265,7 @@ def load_ca_netscience(location='/data/mp2242/ca-netscience/ca-netscience.mtx', 
 
     return Hypergraph.graph_to_hypergraph(G), labels
 
-def load_ghtorrent_projects(location='/data/mp2242/ghtorrent-projects-hypergraph', simplex_min_size=2, simplex_max_size=2, relabel=True, num_followers_min=100):
+def load_ghtorrent_projects(location=f'{DATA_ROOT}/ghtorrent-projects-hypergraph', simplex_min_size=2, simplex_max_size=2, relabel=True, num_followers_min=100):
     df = pd.read_csv(os.path.join(location, 'project_members.txt'), sep='\t')
     df = df[(df.simplex_size >= simplex_min_size) & (df.simplex_size <= simplex_max_size)]
 
@@ -364,7 +364,7 @@ def load_hypergraph(name='email-Enron', location='/data/mp2242', simplex_min_siz
 
     return H, labels
 
-def load_coauth_mag_kdd(location='/data/mp2242/coauth-MAG-KDD', simplex_min_size=2, simplex_max_size=2, timestamp_min=1970, timestamp_max=2100, completed=True):
+def load_coauth_mag_kdd(location=f'{DATA_ROOT}/coauth-MAG-KDD', simplex_min_size=2, simplex_max_size=2, timestamp_min=1970, timestamp_max=2100, completed=True):
         H = Hypergraph()
 
         with open(os.path.join(location, 'coauth-MAG-KDD.txt')) as f:
