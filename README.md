@@ -35,7 +35,7 @@ Please cite the paper, data and source code as
 @inproceedings{cigam_paper,
   title		= {Core-periphery Models for Hypergraphs},
   author	= {Papachristou, Marios and Kleinberg, Jon},
-  booktitle	= {KDD 2022},
+  booktitle	= {Proceedings of the 28th ACM SIGKDD Conference on Knowledge Discovery & Data Mining},
   year		= {2022}
 }
 
