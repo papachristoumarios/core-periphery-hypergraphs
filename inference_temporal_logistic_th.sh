@@ -1,6 +1,0 @@
-#!/bin/bash
-nohup python3.6 inference_temporal_logistic_th.py --timestamp_min 1995 --timestamp_max 2015 --window 1 --step 1 --order_min 2 --order_max 25 --negative_samples 0.5  --num_simulations 1 --name coauth-MAG-KDD -o temporal_coauth_mag_kdd_logistic_th & 
-nohup python3.6 inference_temporal_logistic_th.py --timestamp_min 1385990000 --timestamp_max 1386340000 --window 100000 --step 100000 --order_min 2 --order_max 25 --negative_samples 0.5 --num_simulations 1 --name contact-high-school -o temporal_contact_high_school_logistic_th &
-nohup python3.6 inference_temporal_logistic_th.py --timestamp_min 120000 --timestamp_max 140000 --window 2000 --step 2000 --order_min 2 --order_max 25 --negative_samples 0.5  --num_simulations 1 --name contact-primary-school -o temporal_contact_primary_school_logistic_th &
-nohup python3.6 inference_temporal_logistic_th.py --timestamp_min 0 --timestamp_max 19 --window 1 --step 1 --order_min 2 --order_max 25 --negative_samples 0.5  --num_simulations 1 --name email-Eu -o temporal_email_eu_logistic_th &
-nohup python3.6 inference_temporal_logistic_th.py --timestamp_min 721000 --timestamp_max 731000  --window 1000 --step 1000 --order_min 2 --order_max 25 --negative_samples 0.5 --num_simulations 1 --name congress-bills -o temporal_contact_congress_bills_logistic_th &

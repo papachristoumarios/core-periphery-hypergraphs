@@ -133,7 +133,7 @@ class LogisticCP:
 
         return lp, self.thetas
 
-    def fit_torch(self, G, features, gold_ranks, negative_samples=-1, num_epochs=50, max_patience=5, ranks_col=0, early_stopping='log-posterior', lr=1e-6, learnable_ranks=True):
+    def fit_torch(self, G, features, gold_ranks, negative_samples=-1, num_epochs=10, max_patience=5, ranks_col=0, early_stopping='log-posterior', lr=1e-6, learnable_ranks=True):
         # Graph 
         n = len(G)
         edge_set = G.to_index(set)

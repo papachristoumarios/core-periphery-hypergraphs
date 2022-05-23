@@ -247,7 +247,7 @@ class CIGAM:
 
         return num_layers[argmax], log_err, num_layers, breakpoints
 
-    def find_hyperparameters(self, G, features, gold_ranks, learnable_ranks=False, layers_max=10, step=0.2, bayesian=True, num_epochs=50, criterion='spearman'):
+    def find_hyperparameters(self, G, features, gold_ranks, learnable_ranks=False, layers_max=10, step=0.2, bayesian=True, num_epochs=50, criterion='log_posterior'):
 
         l, _, _, _ = self.find_number_of_layers(G, layers_max=layers_max)
 
@@ -670,6 +670,7 @@ class CIGAM:
         max_spearman = - sys.maxsize
         opt_graph_model = None
         opt_ranks_model = None
+        opt_ranks = None
         patience = 0
 
         pbar = tqdm(range(num_epochs))
@@ -678,14 +679,14 @@ class CIGAM:
 
         for i in range(num_epochs):
             if learnable_ranks:
-                ranks, sizes, neg_sizes = ranks_model(features, edges)
+                ranks, sizes, neg_sizes, ordering = ranks_model(features, edges)
             elif not learnable_ranks and i == 0:
                 ranks, sizes, neg_sizes = ranks_model(torch.from_numpy(gold_ranks.astype(np.float32)).cuda().unsqueeze(-1), edges)
             y_pred = graph_model(ranks)
 
             neg_log_posterior = - torch.sum(sizes.sum(0) * torch.log(y_pred) + neg_sizes.sum(0) * torch.log(1 - y_pred)) - \
-                                 ranks.size(0) * torch.log(graph_model.lambda_) + graph_model.lambda_ * ranks.sum() - ranks.size(0) * log_sigmoid(graph_model.lambda_) 
-                                #self.alpha_c * torch.sum(graph_model.c) - (self.alpha_lambda - 1) * torch.log(graph_model.lambda_) + self.beta_lambda * graph_model.lambda_
+                                 ranks.size(0) * torch.log(graph_model.lambda_) + graph_model.lambda_ * ranks.sum() - ranks.size(0) * log_sigmoid(graph_model.lambda_) + \
+                                self.alpha_c * torch.sum(graph_model.c) - (self.alpha_lambda - 1) * torch.log(graph_model.lambda_) + self.beta_lambda * graph_model.lambda_
             if self.constrained:
                 neg_log_barrier = - torch.log(graph_model.c[0] - 1)
                 for i in range(len(H) - 1):
@@ -695,16 +696,16 @@ class CIGAM:
 
             loss = neg_log_posterior + neg_log_barrier
             loss.backward()
-
             optimizer.step()
             optimizer.zero_grad()
             log_posteriors.append(-neg_log_posterior.item())
             if learnable_ranks:
-                spearmans.append(scipy.stats.spearmanr(gold_ranks, ranks.clone().detach().cpu().numpy()[:, ranks_col]).correlation)
-                pbar.set_description('Loss: {}, LB: {}, Spearman: {}'.format(log_posteriors[-1], neg_log_barrier.item(), spearmans[-1]))
+                ordering = ordering.clone().detach().cpu().numpy()[:, 0]
+                spearmans.append(scipy.stats.spearmanr(gold_ranks, ranks.clone().detach().cpu().numpy()[ordering, ranks_col]).correlation)
+                pbar.set_description('Loss: {:.2f}, LB: {:.2f}, Spearman: {:.2f}'.format(log_posteriors[-1], neg_log_barrier.item(), spearmans[-1]))
             else:
                 spearmans.append(1)
-                pbar.set_description('Loss: {}, LB: {}'.format(log_posteriors[-1], neg_log_barrier.item()))
+                pbar.set_description('Loss: {:.2f}, LB: {:.2f}'.format(log_posteriors[-1], neg_log_barrier.item()))
             pbar.update()
             # Early stopping
             if not np.isnan(log_posteriors[-1]) and max_log_posterior <= log_posteriors[-1] and early_stopping == 'log-posterior':
@@ -712,27 +713,39 @@ class CIGAM:
                 max_log_posterior = log_posteriors[-1]
                 opt_graph_model = copy.deepcopy(graph_model)
                 opt_ranks_model = copy.deepcopy(ranks_model)
-            elif learnable_ranks and not np.isnan(log_posteriors[-1]) and max_spearman <= spearmans[-1] and early_stopping == 'spearman':
+                opt_ranks = ranks.clone().detach().cpu().numpy()
+                if learnable_ranks:
+                    opt_ranks = opt_ranks[ordering, :]
+            elif learnable_ranks and not np.isnan(log_posteriors[-1]) and max_spearman <= spearmans[-1] and early_stopping == 'spearman' and i > 0:
                 max_spearman = spearmans[-1]
                 max_log_posterior = log_posteriors[-1]
                 opt_graph_model = copy.deepcopy(graph_model)
                 opt_ranks_model = copy.deepcopy(ranks_model)
-            if i > 2:
-                if (log_posteriors[-1] < log_posteriors[-2] and early_stopping == 'log-posterior') or (spearmans[-1] > spearmans[-2] and learnable_ranks and early_stopping == 'spearman'):
+                opt_ranks = ranks.clone().detach().cpu().numpy()
+                if learnable_ranks:
+                    opt_ranks = opt_ranks[ordering, :]
+            if len(log_posteriors) >= 2:
+                if (log_posteriors[-1] < log_posteriors[-2] and early_stopping == 'log-posterior') or (spearmans[-1] < spearmans[-2] and learnable_ranks and early_stopping == 'spearman'):
                     patience += 1
                 else:
                     patience = 0
-
                 if patience == max_patience:
                     break
+
+        for p in opt_ranks_model.ranks_nn.parameters():
+            print(p.data)
+        fig, ax1 = plt.subplots()
+        ax1.plot(log_posteriors, label='Log-Likelihood', color='b') 
+        ax2 = ax1.twinx()
+        ax2.plot(spearmans, label='Spearman', color='r') 
+        plt.legend()
+        plt.savefig('loss') 
+
         pbar.close()
         
         self.c = opt_graph_model.c.detach().cpu().numpy()
         self.lambda_ = opt_graph_model.lambda_.detach().cpu().numpy()
-        ranks = ranks.detach().cpu().numpy()
-
-        return max_log_posterior, max_spearman, ranks
-
+        return max_log_posterior, max_spearman, opt_ranks
 
 class CIGAMRanksTorchModel(nn.Module):
 
@@ -750,13 +763,16 @@ class CIGAMRanksTorchModel(nn.Module):
     def forward(self, features, edges):
         if self.learnable_ranks:
             ranks = self.ranks_nn(features)
-            ranks, edges = self.sort_ranks(ranks, edges)
+            ranks, edges, ordering = self.sort_ranks(ranks, edges)
         else:
             ranks = features
 
         sizes, neg_sizes, layers, num_layers = self.get_partition_sizes(ranks, edges)
 
-        return ranks, sizes, neg_sizes
+        if self.learnable_ranks:
+            return ranks, sizes, neg_sizes, ordering
+        else:
+            return ranks, sizes, neg_sizes
 
     def sort_ranks(self, ranks, edges):
         sort_values = ranks.sort(0, descending=True)
@@ -772,7 +788,7 @@ class CIGAMRanksTorchModel(nn.Module):
                 else:
                     ordered_edges[i, j, :order] = ordering[:, 0][edges[i, j, :order]]
 
-        return ordered_ranks, ordered_edges
+        return ordered_ranks, ordered_edges, ordering
     
     def get_partition_sizes(self, ranks, edges):
         sizes = torch.zeros(self.order_max - self.order_min + 1, ranks.size(0), len(self.H)).cuda()

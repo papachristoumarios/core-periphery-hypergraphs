@@ -322,6 +322,11 @@ class Hypergraph:
 
             for edge in self.edges():
                 edges.add(tuple(sorted(edge.to_index(list))))
+        elif dtype == 'list-set':
+            edges = []
+
+            for edge in self.edges():
+                edges.append(edge.to_index(set))
 
         return edges
 
@@ -351,6 +356,30 @@ class Hypergraph:
 
         y_axis = y_axis / y_axis.max()
         x_axis = x_axis / x_axis.max()
+
+        return x_axis, y_axis
+
+    def core_profile(self, ordering, xi=lambda k: 1):
+        y_axis = np.zeros(len(ordering))
+        x_axis = 1 + np.arange(len(ordering)).astype(np.float32)
+        S = set([])
+        V = set(ordering)
+
+        simplices_set = self.to_index('list-set')
+
+        for i, v in enumerate(ordering):
+            S |= {v}
+            num, den = 0, 0
+
+            for simplex in simplices_set:
+
+                if simplex.issubset(S):
+                    num += xi(len(simplex))
+
+                if len(S & simplex) > 0:
+                    den += xi(len(simplex))
+
+            y_axis[i] = num / den
 
         return x_axis, y_axis
 
